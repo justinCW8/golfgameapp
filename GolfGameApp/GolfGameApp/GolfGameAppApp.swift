@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct GolfGameAppApp: App {
+    @StateObject private var session = SessionModel()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(session)
         }
     }
 }
