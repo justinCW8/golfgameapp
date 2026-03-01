@@ -122,6 +122,35 @@ struct HoleStrokeAllocation: Codable, Hashable, Identifiable {
     var strokesByPlayerID: [String: Int]
 }
 
+struct EventGroup: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    var playerIDs: [String]
+}
+
+struct StablefordHoleResult: Codable, Hashable, Identifiable {
+    var id: String { "\(playerID)-\(holeNumber)" }
+    var playerID: String
+    var holeNumber: Int
+    var gross: Int
+    var net: Int
+    var points: Int
+    var strokes: Int
+}
+
+struct EventSession: Codable {
+    var id: UUID
+    var name: String
+    var date: Date
+    var courseName: String
+    var holes: [CourseHoleStub]
+    var players: [PlayerSnapshot]
+    var groups: [EventGroup]
+    var holeResultsByPlayer: [String: [StablefordHoleResult]]
+    var currentHoleByGroup: [String: Int]
+    var updatedAt: Date
+}
+
 struct RoundSession: Codable {
     var id: UUID
     var setup: RoundSetupSession
@@ -184,6 +213,30 @@ struct RoundSession: Codable {
 private struct AppSessionSnapshot: Codable {
     var gameSelections: [GameType: Bool]
     var activeRoundSession: RoundSession?
+    var activeEventSession: EventSession?
+
+    private enum CodingKeys: String, CodingKey {
+        case gameSelections
+        case activeRoundSession
+        case activeEventSession
+    }
+
+    init(
+        gameSelections: [GameType: Bool],
+        activeRoundSession: RoundSession?,
+        activeEventSession: EventSession?
+    ) {
+        self.gameSelections = gameSelections
+        self.activeRoundSession = activeRoundSession
+        self.activeEventSession = activeEventSession
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gameSelections = try container.decode([GameType: Bool].self, forKey: .gameSelections)
+        activeRoundSession = try container.decodeIfPresent(RoundSession.self, forKey: .activeRoundSession)
+        activeEventSession = try container.decodeIfPresent(EventSession.self, forKey: .activeEventSession)
+    }
 }
 
 @MainActor
@@ -192,6 +245,7 @@ final class AppSessionStore: ObservableObject {
         uniqueKeysWithValues: GameType.allCases.map { ($0, $0 == .sixPointScotch) }
     )
     @Published var activeRoundSession: RoundSession?
+    @Published var activeEventSession: EventSession?
 
     var configuredRound: RoundSetupSession? {
         activeRoundSession?.setup
@@ -239,6 +293,35 @@ final class AppSessionStore: ObservableObject {
         persist()
     }
 
+    func startEventSession(
+        name: String,
+        date: Date,
+        courseName: String,
+        holes: [CourseHoleStub],
+        players: [PlayerSnapshot],
+        groups: [EventGroup]
+    ) {
+        let currentHoleByGroup = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, 1) })
+        activeEventSession = EventSession(
+            id: UUID(),
+            name: name,
+            date: date,
+            courseName: courseName,
+            holes: holes,
+            players: players,
+            groups: groups,
+            holeResultsByPlayer: [:],
+            currentHoleByGroup: currentHoleByGroup,
+            updatedAt: Date()
+        )
+        persist()
+    }
+
+    func updateActiveEventSession(_ session: EventSession) {
+        activeEventSession = session
+        persist()
+    }
+
     func persistSelections() {
         persist()
     }
@@ -246,7 +329,8 @@ final class AppSessionStore: ObservableObject {
     private func persist() {
         let snapshot = AppSessionSnapshot(
             gameSelections: gameSelections,
-            activeRoundSession: activeRoundSession
+            activeRoundSession: activeRoundSession,
+            activeEventSession: activeEventSession
         )
 
         do {
@@ -275,6 +359,7 @@ final class AppSessionStore: ObservableObject {
             let snapshot = try decoder.decode(AppSessionSnapshot.self, from: data)
             gameSelections = snapshot.gameSelections
             activeRoundSession = snapshot.activeRoundSession
+            activeEventSession = snapshot.activeEventSession
         } catch {
             #if DEBUG
             print("AppSessionStore load failed: \(error)")
@@ -292,6 +377,13 @@ final class AppSessionStore: ObservableObject {
 }
 
 typealias SessionModel = AppSessionStore
+
+func strokeCountForHandicapIndex(_ handicapIndex: Double, onHoleStrokeIndex si: Int) -> Int {
+    let courseHandicap = max(0, Int(handicapIndex.rounded(.down)))
+    let base = courseHandicap / 18
+    let remainder = courseHandicap % 18
+    return base + (si <= remainder ? 1 : 0)
+}
 
 enum DemoCourseFactory {
     static let name = "Demo Course"

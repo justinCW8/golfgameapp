@@ -327,10 +327,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     private func strokeCount(for player: PlayerSnapshot, onHoleStrokeIndex si: Int) -> Int {
-        let courseHandicap = max(0, Int(player.handicapIndex.rounded(.down)))
-        let base = courseHandicap / 18
-        let remainder = courseHandicap % 18
-        return base + (si <= remainder ? 1 : 0)
+        strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: si)
     }
 
     private func holeConfig(for holeNumber: Int) -> CourseHoleStub? {

@@ -13,9 +13,9 @@ struct ContentView: View {
                     Label("Games", systemImage: "gamecontroller.fill")
                 }
 
-            HistoryHomeView()
+            EventHomeView()
                 .tabItem {
-                    Label("History", systemImage: "clock.fill")
+                    Label("Events", systemImage: "list.number")
                 }
         }
     }
