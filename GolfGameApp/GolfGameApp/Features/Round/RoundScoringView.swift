@@ -9,8 +9,56 @@ struct RoundScoringView: View {
 
     var body: some View {
         Form {
-            Section("Current Hole") {
+            Section("Tee Box") {
                 Text("Hole \(viewModel.currentHole)")
+                if let trailing = viewModel.trailingTeam {
+                    Text("Trailing: \(teamTitle(trailing))")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Teams are tied on this nine")
+                        .foregroundStyle(.secondary)
+                }
+                if let leading = viewModel.leadingTeam {
+                    Text("Leading: \(teamTitle(leading))")
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Button(viewModel.leaderTeedOff ? "Leader Teed Off ✓" : "Leader Teed Off") {
+                        viewModel.leaderTeedOffTapped()
+                    }
+                    .disabled(viewModel.leaderTeedOff || viewModel.hasScoredCurrentHole)
+
+                    Button(viewModel.trailerTeedOff ? "Trailer Teed Off ✓" : "Trailer Teed Off") {
+                        viewModel.trailerTeedOffTapped()
+                    }
+                    .disabled(viewModel.trailerTeedOff || !viewModel.leaderTeedOff || viewModel.hasScoredCurrentHole)
+                }
+
+                if viewModel.canRequestPress || viewModel.requestPress {
+                    Button(viewModel.requestPress ? "Press Selected ✓" : "Press") {
+                        viewModel.pressTapped()
+                    }
+                    .disabled(!viewModel.canRequestPress && !viewModel.requestPress)
+                }
+
+                if viewModel.canRequestRoll || viewModel.requestRoll {
+                    Button(viewModel.requestRoll ? "Roll Selected ✓" : "Roll") {
+                        viewModel.rollTapped()
+                    }
+                    .disabled(!viewModel.canRequestRoll && !viewModel.requestRoll)
+                }
+
+                if viewModel.canRequestReroll || viewModel.requestReroll {
+                    Button(viewModel.requestReroll ? "Re-roll Selected ✓" : "Re-roll") {
+                        viewModel.rerollTapped()
+                    }
+                    .disabled(!viewModel.canRequestReroll && !viewModel.requestReroll)
+                }
+
+                Text("Presses remaining this nine: \(viewModel.pressesRemainingThisNine)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             if !viewModel.playerNames.isEmpty {
@@ -37,21 +85,12 @@ struct RoundScoringView: View {
                 scorePairFields(inputs: $viewModel.teamBGrossInputs, prefix: "B Gross")
             }
 
-            Section("Prox (optional)") {
-                TextField("Team A prox (feet)", text: $viewModel.teamAProxInput)
-                    .keyboardType(.decimalPad)
-                TextField("Team B prox (feet)", text: $viewModel.teamBProxInput)
-                    .keyboardType(.decimalPad)
-            }
-
-            Section("Actions") {
-                Toggle("Press", isOn: $viewModel.usePress)
-                Toggle("Roll", isOn: $viewModel.useRoll)
-                    .onChange(of: viewModel.useRoll) { isOn in
-                        viewModel.rollChanged(isOn: isOn)
+            Section("Prox") {
+                Picker("Prox Winner", selection: $viewModel.proxWinner) {
+                    ForEach(ProxWinner.allCases) { winner in
+                        Text(winner.title).tag(winner)
                     }
-                Toggle("Re-roll", isOn: $viewModel.useReroll)
-                    .disabled(!viewModel.useRoll)
+                }
             }
 
             Section {
@@ -62,7 +101,7 @@ struct RoundScoringView: View {
             }
 
             if let output = viewModel.lastOutput {
-                Section("Last Scored Hole (\(output.holeNumber))") {
+                Section("Hole Results (Hole \(output.holeNumber))") {
                     Text("Raw Team A / Team B: \(output.rawTeamAPoints) / \(output.rawTeamBPoints)")
                     Text("Multiplier: x\(output.multiplier)")
                     Text("Multiplied Team A / Team B: \(output.multipliedTeamAPoints) / \(output.multipliedTeamBPoints)")
@@ -111,5 +150,9 @@ struct RoundScoringView: View {
             TextField("\(prefix) \(index + 1)", text: inputs[index])
                 .keyboardType(.numberPad)
         }
+    }
+
+    private func teamTitle(_ team: TeamSide) -> String {
+        team == .teamA ? "Team A" : "Team B"
     }
 }

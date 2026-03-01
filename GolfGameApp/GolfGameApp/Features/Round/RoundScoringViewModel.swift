@@ -9,12 +9,12 @@ final class RoundScoringViewModel: ObservableObject {
     @Published var teamBNetInputs = ["", ""]
     @Published var teamAGrossInputs = ["", ""]
     @Published var teamBGrossInputs = ["", ""]
-    @Published var teamAProxInput = ""
-    @Published var teamBProxInput = ""
-
-    @Published var usePress = false
-    @Published var useRoll = false
-    @Published var useReroll = false
+    @Published var proxWinner: ProxWinner = .none
+    @Published var leaderTeedOff = false
+    @Published var trailerTeedOff = false
+    @Published var requestPress = false
+    @Published var requestRoll = false
+    @Published var requestReroll = false
 
     @Published var hasScoredCurrentHole = false
     @Published var lastOutput: SixPointScotchHoleOutput?
@@ -45,6 +45,34 @@ final class RoundScoringViewModel: ObservableObject {
         return Array(audit.suffix(8))
     }
 
+    var currentNineLedger: NineLedger {
+        currentHole <= 9 ? engine.frontNine : engine.backNine
+    }
+
+    var leadingTeam: TeamSide? {
+        leaderForLedger(currentNineLedger)
+    }
+
+    var trailingTeam: TeamSide? {
+        trailingForLedger(currentNineLedger)
+    }
+
+    var pressesRemainingThisNine: Int {
+        max(0, 2 - currentNineLedger.usedPresses)
+    }
+
+    var canRequestPress: Bool {
+        trailingTeam != nil && !leaderTeedOff && pressesRemainingThisNine > 0 && !hasScoredCurrentHole
+    }
+
+    var canRequestRoll: Bool {
+        trailingTeam != nil && leaderTeedOff && !trailerTeedOff && !hasScoredCurrentHole
+    }
+
+    var canRequestReroll: Bool {
+        leadingTeam != nil && requestRoll && !trailerTeedOff && !hasScoredCurrentHole
+    }
+
     func scoreCurrentHole() {
         guard currentHole <= 18 else {
             errorMessage = "Round is complete."
@@ -58,7 +86,7 @@ final class RoundScoringViewModel: ObservableObject {
             errorMessage = "Enter all 8 required scores as whole numbers."
             return
         }
-        guard !useReroll || useRoll else {
+        guard !requestReroll || requestRoll else {
             errorMessage = "Re-roll requires roll on this hole."
             return
         }
@@ -68,20 +96,17 @@ final class RoundScoringViewModel: ObservableObject {
             let teamBNet = try parseIntPair(teamBNetInputs, label: "Team B net")
             let teamAGross = try parseIntPair(teamAGrossInputs, label: "Team A gross")
             let teamBGross = try parseIntPair(teamBGrossInputs, label: "Team B gross")
-            let teamAProx = parseOptionalDouble(teamAProxInput)
-            let teamBProx = parseOptionalDouble(teamBProxInput)
+            let (teamAProx, teamBProx) = proxDistancesFromWinner(proxWinner)
+            let leader = leadingTeam
+            let trailing = trailingTeam
 
-            let ledger = currentHole <= 9 ? engine.frontNine : engine.backNine
-            let leader = leaderForLedger(ledger)
-            let trailing = trailingForLedger(ledger)
-
-            if usePress && trailing == nil {
+            if requestPress && trailing == nil {
                 throw ValidationError("Press requires a trailing team on this nine.")
             }
-            if useRoll && trailing == nil {
+            if requestRoll && trailing == nil {
                 throw ValidationError("Roll requires a trailing team on this nine.")
             }
-            if useReroll && leader == nil {
+            if requestReroll && leader == nil {
                 throw ValidationError("Re-roll requires a leading team on this nine.")
             }
 
@@ -94,11 +119,11 @@ final class RoundScoringViewModel: ObservableObject {
                 teamBGrossScores: teamBGross,
                 teamAProxFeet: teamAProx,
                 teamBProxFeet: teamBProx,
-                requestPressBy: usePress ? trailing : nil,
-                requestRollBy: useRoll ? trailing : nil,
-                requestRerollBy: useReroll ? leader : nil,
-                leaderTeedOff: useRoll || useReroll,
-                trailerTeedOff: false
+                requestPressBy: requestPress ? trailing : nil,
+                requestRollBy: requestRoll ? trailing : nil,
+                requestRerollBy: requestReroll ? leader : nil,
+                leaderTeedOff: leaderTeedOff,
+                trailerTeedOff: trailerTeedOff
             )
 
             let output = try engine.scoreHole(input)
@@ -107,7 +132,7 @@ final class RoundScoringViewModel: ObservableObject {
             lastOutput = output
             hasScoredCurrentHole = true
             errorMessage = nil
-            resetActionToggles()
+            resetHoleActionState()
             persistRoundState()
         } catch let error as ValidationError {
             errorMessage = error.message
@@ -150,12 +175,6 @@ final class RoundScoringViewModel: ObservableObject {
         }
     }
 
-    private func parseOptionalDouble(_ raw: String) -> Double? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return nil }
-        return Double(trimmed)
-    }
-
     private func leaderForLedger(_ ledger: NineLedger) -> TeamSide? {
         if ledger.teamAPoints == ledger.teamBPoints { return nil }
         return ledger.teamAPoints > ledger.teamBPoints ? .teamA : .teamB
@@ -171,21 +190,52 @@ final class RoundScoringViewModel: ObservableObject {
         teamBNetInputs = ["", ""]
         teamAGrossInputs = ["", ""]
         teamBGrossInputs = ["", ""]
-        teamAProxInput = ""
-        teamBProxInput = ""
-        resetActionToggles()
+        proxWinner = .none
+        resetHoleActionState()
     }
 
-    private func resetActionToggles() {
-        usePress = false
-        useRoll = false
-        useReroll = false
+    private func resetHoleActionState() {
+        leaderTeedOff = false
+        trailerTeedOff = false
+        requestPress = false
+        requestRoll = false
+        requestReroll = false
     }
 
-    func rollChanged(isOn: Bool) {
-        if !isOn {
-            useReroll = false
+    func pressTapped() {
+        if requestPress {
+            requestPress = false
+            return
         }
+        guard canRequestPress else { return }
+        requestPress = true
+    }
+
+    func rollTapped() {
+        if requestRoll {
+            requestRoll = false
+            requestReroll = false
+            return
+        }
+        guard canRequestRoll else { return }
+        requestRoll = true
+    }
+
+    func rerollTapped() {
+        if requestReroll {
+            requestReroll = false
+            return
+        }
+        guard canRequestReroll else { return }
+        requestReroll = true
+    }
+
+    func leaderTeedOffTapped() {
+        leaderTeedOff = true
+    }
+
+    func trailerTeedOffTapped() {
+        trailerTeedOff = true
     }
 
     private func message(for error: SixPointScotchActionError) -> String {
@@ -234,6 +284,17 @@ final class RoundScoringViewModel: ObservableObject {
         currentHole = min(max(session.currentHole, 1), 18)
         hasScoredCurrentHole = session.isCurrentHoleScored
     }
+
+    private func proxDistancesFromWinner(_ winner: ProxWinner) -> (Double?, Double?) {
+        switch winner {
+        case .player1, .player2:
+            return (1, 2)
+        case .player3, .player4:
+            return (2, 1)
+        case .none:
+            return (nil, nil)
+        }
+    }
 }
 
 private struct ValidationError: Error {
@@ -247,5 +308,25 @@ private struct ValidationError: Error {
 private extension RoundScoringViewModel {
     var allRequiredInputs: [String] {
         teamANetInputs + teamBNetInputs + teamAGrossInputs + teamBGrossInputs
+    }
+}
+
+enum ProxWinner: String, CaseIterable, Identifiable {
+    case player1
+    case player2
+    case player3
+    case player4
+    case none
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .player1: return "Player 1"
+        case .player2: return "Player 2"
+        case .player3: return "Player 3"
+        case .player4: return "Player 4"
+        case .none: return "None"
+        }
     }
 }
