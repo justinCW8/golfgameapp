@@ -15,6 +15,7 @@ final class RoundScoringViewModel: ObservableObject {
     @Published var useRoll = false
     @Published var useReroll = false
 
+    @Published var holeHistory: [SixPointScotchHoleOutput] = []
     @Published var hasScoredCurrentHole = false
     @Published var lastOutput: SixPointScotchHoleOutput?
     @Published var errorMessage: String?
@@ -70,6 +71,7 @@ final class RoundScoringViewModel: ObservableObject {
             )
 
             let output = try engine.scoreHole(input)
+            holeHistory.append(output)
             lastOutput = output
             hasScoredCurrentHole = true
             errorMessage = nil
@@ -95,12 +97,25 @@ final class RoundScoringViewModel: ObservableObject {
 
         currentHole += 1
         hasScoredCurrentHole = false
+        lastOutput = holeHistory.last
         errorMessage = nil
         resetInputsForNextHole()
     }
 
     var isRoundComplete: Bool {
         currentHole == 18 && hasScoredCurrentHole
+    }
+
+    var isRequiredInputValid: Bool {
+        (try? parseIntPair(teamANetInputs, label: "")) != nil &&
+        (try? parseIntPair(teamBNetInputs, label: "")) != nil &&
+        (try? parseIntPair(teamAGrossInputs, label: "")) != nil &&
+        (try? parseIntPair(teamBGrossInputs, label: "")) != nil
+    }
+
+    var latestAuditLines: [String] {
+        guard let output = lastOutput else { return [] }
+        return Array(output.auditLog.suffix(8))
     }
 
     private func parseIntPair(_ raw: [String], label: String) throws -> [Int] {

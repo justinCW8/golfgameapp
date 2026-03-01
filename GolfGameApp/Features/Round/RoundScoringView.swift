@@ -42,7 +42,7 @@ struct RoundScoringView: View {
                 Button("Score Hole") {
                     viewModel.scoreCurrentHole()
                 }
-                .disabled(viewModel.isRoundComplete || viewModel.hasScoredCurrentHole)
+                .disabled(viewModel.isRoundComplete || viewModel.hasScoredCurrentHole || !viewModel.isRequiredInputValid)
             }
 
             if let output = viewModel.lastOutput {
@@ -57,13 +57,20 @@ struct RoundScoringView: View {
                     Text("Back Nine A/B: \(output.backNineTeamA) / \(output.backNineTeamB)")
                     Text("Overall A/B: \(output.totalTeamA) / \(output.totalTeamB)")
                 }
+
+                Section("Audit Log") {
+                    ForEach(Array(viewModel.latestAuditLines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.footnote)
+                    }
+                }
             }
 
             Section {
                 Button("Next Hole") {
                     viewModel.goToNextHole()
                 }
-                .disabled(!viewModel.hasScoredCurrentHole || viewModel.currentHole >= 18)
+                .disabled(!viewModel.hasScoredCurrentHole)
 
                 if viewModel.isRoundComplete {
                     Text("Round complete at 18 holes.")
