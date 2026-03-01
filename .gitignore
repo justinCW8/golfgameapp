@@ -11,3 +11,5 @@ xcuserdata/
 
 # SwiftPM
 .build/
+xcuserdata/
+*.xcuserstate
