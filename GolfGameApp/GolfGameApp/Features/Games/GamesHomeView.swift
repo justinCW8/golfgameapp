@@ -22,7 +22,10 @@ struct GamesHomeView: View {
                                 "",
                                 isOn: Binding(
                                     get: { session.gameSelections[game, default: false] },
-                                    set: { session.gameSelections[game] = $0 }
+                                    set: {
+                                        session.gameSelections[game] = $0
+                                        session.persistSelections()
+                                    }
                                 )
                             )
                             .labelsHidden()

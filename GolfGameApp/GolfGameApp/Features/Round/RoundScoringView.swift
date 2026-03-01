@@ -1,12 +1,24 @@
 import SwiftUI
 
 struct RoundScoringView: View {
-    @StateObject private var viewModel = RoundScoringViewModel()
+    @StateObject private var viewModel: RoundScoringViewModel
+
+    init(session: SessionModel) {
+        _viewModel = StateObject(wrappedValue: RoundScoringViewModel(sessionStore: session))
+    }
 
     var body: some View {
         Form {
             Section("Current Hole") {
                 Text("Hole \(viewModel.currentHole)")
+            }
+
+            if !viewModel.playerNames.isEmpty {
+                Section("Players") {
+                    ForEach(viewModel.playerNames, id: \.self) { name in
+                        Text(name)
+                    }
+                }
             }
 
             Section("Team A Net") {

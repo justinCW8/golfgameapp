@@ -4,6 +4,7 @@ import Combine
 @MainActor
 final class RoundScoringViewModel: ObservableObject {
     @Published var currentHole = 1
+    @Published var holeHistory: [SixPointScotchHoleOutput] = []
     @Published var teamANetInputs = ["", ""]
     @Published var teamBNetInputs = ["", ""]
     @Published var teamAGrossInputs = ["", ""]
@@ -19,8 +20,19 @@ final class RoundScoringViewModel: ObservableObject {
     @Published var lastOutput: SixPointScotchHoleOutput?
     @Published var errorMessage: String?
 
+    private let sessionStore: SessionModel
     private var engine = SixPointScotchEngine()
+    private var scoredHoleInputs: [SixPointScotchHoleInput] = []
     private let requiredInputCount = 8
+
+    var playerNames: [String] {
+        sessionStore.activeRoundSession?.setup.players.map(\.name) ?? []
+    }
+
+    init(sessionStore: SessionModel) {
+        self.sessionStore = sessionStore
+        restoreFromSession()
+    }
 
     var canScore: Bool {
         allRequiredInputs.count == requiredInputCount && allRequiredInputs.allSatisfy { value in
@@ -90,10 +102,13 @@ final class RoundScoringViewModel: ObservableObject {
             )
 
             let output = try engine.scoreHole(input)
+            scoredHoleInputs.append(input)
+            holeHistory.append(output)
             lastOutput = output
             hasScoredCurrentHole = true
             errorMessage = nil
             resetActionToggles()
+            persistRoundState()
         } catch let error as ValidationError {
             errorMessage = error.message
         } catch let error as SixPointScotchActionError {
@@ -117,6 +132,7 @@ final class RoundScoringViewModel: ObservableObject {
         hasScoredCurrentHole = false
         errorMessage = nil
         resetInputsForNextHole()
+        persistRoundState()
     }
 
     var isRoundComplete: Bool {
@@ -185,6 +201,38 @@ final class RoundScoringViewModel: ObservableObject {
         case .rerollRequiresLeadingTeam: return "Re-roll can only be called by the leading team."
         case .rerollWindowInvalid: return "Re-roll must be before trailer tees off."
         }
+    }
+
+    private func persistRoundState() {
+        sessionStore.updateActiveRoundState(
+            currentHole: currentHole,
+            isCurrentHoleScored: hasScoredCurrentHole,
+            scoredHoleInputs: scoredHoleInputs
+        )
+    }
+
+    private func restoreFromSession() {
+        guard let session = sessionStore.activeRoundSession else { return }
+
+        var rebuiltEngine = SixPointScotchEngine()
+        var rebuiltOutputs: [SixPointScotchHoleOutput] = []
+
+        for input in session.scoredHoleInputs {
+            do {
+                let output = try rebuiltEngine.scoreHole(input)
+                rebuiltOutputs.append(output)
+            } catch {
+                errorMessage = "Saved round data is invalid for one or more holes."
+                break
+            }
+        }
+
+        engine = rebuiltEngine
+        scoredHoleInputs = session.scoredHoleInputs
+        holeHistory = rebuiltOutputs
+        lastOutput = rebuiltOutputs.last
+        currentHole = min(max(session.currentHole, 1), 18)
+        hasScoredCurrentHole = session.isCurrentHoleScored
     }
 }
 

@@ -10,9 +10,10 @@ import Combine
 
 struct RoundHomeView: View {
     @EnvironmentObject private var session: SessionModel
+    @State private var path: [RoundRoute] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack(spacing: 16) {
                 if let configuredRound = session.configuredRound {
                     ConfiguredRoundCard(round: configuredRound)
@@ -21,20 +22,36 @@ struct RoundHomeView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                NavigationLink("Start Round Setup") {
-                    RoundSetupFlowView()
+                Button("Start Round Setup") {
+                    path.append(.setup)
                 }
                 .buttonStyle(.borderedProminent)
 
-                NavigationLink("Start Scotch Round") {
-                    RoundScoringView()
+                Button("Start Scotch Round") {
+                    path.append(.scoring)
                 }
                 .buttonStyle(.bordered)
+                .disabled(session.activeRoundSession == nil)
             }
             .padding()
             .navigationTitle("Round")
+            .navigationDestination(for: RoundRoute.self) { route in
+                switch route {
+                case .setup:
+                    RoundSetupFlowView { _ in
+                        path.append(.scoring)
+                    }
+                case .scoring:
+                    RoundScoringView(session: session)
+                }
+            }
         }
     }
+}
+
+private enum RoundRoute: Hashable {
+    case setup
+    case scoring
 }
 
 @MainActor
@@ -47,7 +64,8 @@ final class RoundSetupViewModel: ObservableObject {
         PlayerDraft(),
         PlayerDraft()
     ]
-    @Published var holes = CourseStubFactory.default18()
+    @Published var courseName = DemoCourseFactory.name
+    @Published var holes = DemoCourseFactory.holes18()
 
     var hasValidEventName: Bool {
         !eventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -85,25 +103,29 @@ final class RoundSetupViewModel: ObservableObject {
             PlayerSnapshot(id: $0.id.uuidString, name: $0.name, handicapIndex: $0.handicapIndex)
         }
 
-        session.configuredRound = RoundSetupSession(
+        let setup = RoundSetupSession(
             event: EventDraft(name: eventName, date: eventDate),
+            courseName: courseName,
             players: snapshots,
             holes: holes,
             pairings: pairings
         )
+        session.startRoundSession(with: setup)
     }
 }
 
 private struct RoundSetupFlowView: View {
     @StateObject private var viewModel = RoundSetupViewModel()
+    let onFinish: (RoundSetupSession) -> Void
 
     var body: some View {
-        EventCreationScreen(viewModel: viewModel)
+        EventCreationScreen(viewModel: viewModel, onFinish: onFinish)
     }
 }
 
 private struct EventCreationScreen: View {
     @ObservedObject var viewModel: RoundSetupViewModel
+    let onFinish: (RoundSetupSession) -> Void
 
     var body: some View {
         Form {
@@ -113,7 +135,7 @@ private struct EventCreationScreen: View {
             }
             Section {
                 NavigationLink("Next: Players") {
-                    PlayerEntryScreen(viewModel: viewModel)
+                    PlayerEntryScreen(viewModel: viewModel, onFinish: onFinish)
                 }
                 .disabled(!viewModel.hasValidEventName)
             }
@@ -124,6 +146,7 @@ private struct EventCreationScreen: View {
 
 private struct PlayerEntryScreen: View {
     @ObservedObject var viewModel: RoundSetupViewModel
+    let onFinish: (RoundSetupSession) -> Void
 
     var body: some View {
         Form {
@@ -145,7 +168,7 @@ private struct PlayerEntryScreen: View {
             }
             Section {
                 NavigationLink("Next: Course") {
-                    CourseStubScreen(viewModel: viewModel)
+                    CourseStubScreen(viewModel: viewModel, onFinish: onFinish)
                 }
                 .disabled(!viewModel.hasFourNamedPlayers)
             }
@@ -156,10 +179,11 @@ private struct PlayerEntryScreen: View {
 
 private struct CourseStubScreen: View {
     @ObservedObject var viewModel: RoundSetupViewModel
+    let onFinish: (RoundSetupSession) -> Void
 
     var body: some View {
         List {
-            Section("Course Stub (18 Holes)") {
+            Section("\(viewModel.courseName) (18 Holes)") {
                 ForEach(viewModel.holes) { hole in
                     HStack {
                         Text("Hole \(hole.number)")
@@ -173,19 +197,19 @@ private struct CourseStubScreen: View {
             }
             Section {
                 NavigationLink("Next: Teams") {
-                    TeamAssignmentScreen(viewModel: viewModel)
+                    TeamAssignmentScreen(viewModel: viewModel, onFinish: onFinish)
                 }
             }
         }
-        .navigationTitle("Course")
+        .navigationTitle(viewModel.courseName)
         .listStyle(.insetGrouped)
     }
 }
 
 private struct TeamAssignmentScreen: View {
     @EnvironmentObject private var session: SessionModel
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: RoundSetupViewModel
+    let onFinish: (RoundSetupSession) -> Void
 
     var body: some View {
         List {
@@ -212,7 +236,9 @@ private struct TeamAssignmentScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Finish") {
                     viewModel.commit(into: session)
-                    dismiss()
+                    if let configured = session.configuredRound {
+                        onFinish(configured)
+                    }
                 }
             }
         }
@@ -227,6 +253,8 @@ private struct ConfiguredRoundCard: View {
             Text(round.event.name)
                 .font(.headline)
             Text(round.event.date, style: .date)
+                .foregroundStyle(.secondary)
+            Text(round.courseName)
                 .foregroundStyle(.secondary)
             Divider()
             Text("Players")
