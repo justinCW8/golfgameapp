@@ -20,6 +20,18 @@ final class RoundScoringViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private var engine = SixPointScotchEngine()
+    private let requiredInputCount = 8
+
+    var canScore: Bool {
+        allRequiredInputs.count == requiredInputCount && allRequiredInputs.allSatisfy { value in
+            Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        }
+    }
+
+    var latestAuditLines: [String] {
+        guard let audit = lastOutput?.auditLog, !audit.isEmpty else { return [] }
+        return Array(audit.suffix(8))
+    }
 
     func scoreCurrentHole() {
         guard currentHole <= 18 else {
@@ -28,6 +40,14 @@ final class RoundScoringViewModel: ObservableObject {
         }
         guard !hasScoredCurrentHole else {
             errorMessage = "This hole is already scored. Tap Next Hole."
+            return
+        }
+        guard canScore else {
+            errorMessage = "Enter all 8 required scores as whole numbers."
+            return
+        }
+        guard !useReroll || useRoll else {
+            errorMessage = "Re-roll requires roll on this hole."
             return
         }
 
@@ -146,6 +166,12 @@ final class RoundScoringViewModel: ObservableObject {
         useReroll = false
     }
 
+    func rollChanged(isOn: Bool) {
+        if !isOn {
+            useReroll = false
+        }
+    }
+
     private func message(for error: SixPointScotchActionError) -> String {
         switch error {
         case .holeOutOfRange: return "Hole number must be between 1 and 18."
@@ -167,5 +193,11 @@ private struct ValidationError: Error {
 
     init(_ message: String) {
         self.message = message
+    }
+}
+
+private extension RoundScoringViewModel {
+    var allRequiredInputs: [String] {
+        teamANetInputs + teamBNetInputs + teamAGrossInputs + teamBGrossInputs
     }
 }

@@ -35,18 +35,22 @@ struct RoundScoringView: View {
             Section("Actions") {
                 Toggle("Press", isOn: $viewModel.usePress)
                 Toggle("Roll", isOn: $viewModel.useRoll)
+                    .onChange(of: viewModel.useRoll) { isOn in
+                        viewModel.rollChanged(isOn: isOn)
+                    }
                 Toggle("Re-roll", isOn: $viewModel.useReroll)
+                    .disabled(!viewModel.useRoll)
             }
 
             Section {
                 Button("Score Hole") {
                     viewModel.scoreCurrentHole()
                 }
-                .disabled(viewModel.isRoundComplete || viewModel.hasScoredCurrentHole)
+                .disabled(viewModel.isRoundComplete || viewModel.hasScoredCurrentHole || !viewModel.canScore)
             }
 
             if let output = viewModel.lastOutput {
-                Section("Last Scored Hole") {
+                Section("Last Scored Hole (\(output.holeNumber))") {
                     Text("Raw Team A / Team B: \(output.rawTeamAPoints) / \(output.rawTeamBPoints)")
                     Text("Multiplier: x\(output.multiplier)")
                     Text("Multiplied Team A / Team B: \(output.multipliedTeamAPoints) / \(output.multipliedTeamBPoints)")
@@ -56,6 +60,15 @@ struct RoundScoringView: View {
                     Text("Front Nine A/B: \(output.frontNineTeamA) / \(output.frontNineTeamB)")
                     Text("Back Nine A/B: \(output.backNineTeamA) / \(output.backNineTeamB)")
                     Text("Overall A/B: \(output.totalTeamA) / \(output.totalTeamB)")
+                }
+
+                if !viewModel.latestAuditLines.isEmpty {
+                    Section("Audit Log") {
+                        ForEach(viewModel.latestAuditLines, id: \.self) { line in
+                            Text(line)
+                                .font(.footnote)
+                        }
+                    }
                 }
             }
 
