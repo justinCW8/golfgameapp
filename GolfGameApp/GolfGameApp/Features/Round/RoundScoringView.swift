@@ -63,30 +63,24 @@ struct RoundScoringView: View {
 
             Section("Player Gross / Net") {
                 ForEach(Array(viewModel.players.enumerated()), id: \.element.id) { index, player in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(player.name)
-                            Text("HI \(player.handicapIndex, specifier: "%.1f")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        TextField("Gross", text: grossBinding(at: index))
-                            .keyboardType(.numberPad)
-                            .frame(maxWidth: 80)
-                            .multilineTextAlignment(.trailing)
-                        Text("Net \(viewModel.netDisplay(forPlayerAt: index))")
-                            .frame(width: 80, alignment: .trailing)
-                            .foregroundStyle(.secondary)
-                    }
+                    PlayerScoreRow(
+                        player: player,
+                        gross: grossBinding(at: index),
+                        netText: viewModel.netDisplay(forPlayerAt: index),
+                        proxSelected: selectedProxWinner(for: index) == viewModel.proxWinner,
+                        onTapProx: { viewModel.proxWinner = selectedProxWinner(for: index) }
+                    )
                 }
-            }
-
-            Section("Prox") {
-                Picker("Prox Winner", selection: $viewModel.proxWinner) {
-                    ForEach(ProxWinner.allCases) { winner in
-                        Text(winner.title).tag(winner)
+                if viewModel.proxWinner == .none {
+                    Button("None / No GIR ✓") {
+                        viewModel.proxWinner = .none
                     }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("None / No GIR") {
+                        viewModel.proxWinner = .none
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
 
@@ -180,6 +174,50 @@ struct RoundScoringView: View {
 
     private func teamTitle(_ team: TeamSide) -> String {
         team == .teamA ? "Team A" : "Team B"
+    }
+
+    private func selectedProxWinner(for index: Int) -> ProxWinner {
+        switch index {
+        case 0: return .player1
+        case 1: return .player2
+        case 2: return .player3
+        case 3: return .player4
+        default: return .none
+        }
+    }
+}
+
+private struct PlayerScoreRow: View {
+    let player: PlayerSnapshot
+    @Binding var gross: String
+    let netText: String
+    let proxSelected: Bool
+    let onTapProx: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(player.name)
+                Text("HI \(player.handicapIndex, specifier: "%.1f")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            TextField("Gross", text: $gross)
+                .keyboardType(.numberPad)
+                .frame(maxWidth: 80)
+                .multilineTextAlignment(.trailing)
+            Text("Net \(netText)")
+                .frame(width: 80, alignment: .trailing)
+                .foregroundStyle(.secondary)
+            if proxSelected {
+                Button("PRO ✓", action: onTapProx)
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button("PRO", action: onTapProx)
+                    .buttonStyle(.bordered)
+            }
+        }
     }
 }
 
