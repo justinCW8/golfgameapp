@@ -4,6 +4,7 @@ import Combine
 @MainActor
 final class RoundScoringViewModel: ObservableObject {
     @Published var currentHole = 1
+    @Published var teeTossFirst: TeamSide?
     @Published var holeHistory: [SixPointScotchHoleOutput] = []
     @Published var playerGrossInputs = ["", "", "", ""]
     @Published var proxWinner: ProxWinner = .none
@@ -38,7 +39,9 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     var canScore: Bool {
-        allRequiredInputs.count == requiredInputCount && allRequiredInputs.allSatisfy { value in
+        !requiresTeeTossChoice &&
+        allRequiredInputs.count == requiredInputCount &&
+        allRequiredInputs.allSatisfy { value in
             Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
         }
     }
@@ -64,16 +67,41 @@ final class RoundScoringViewModel: ObservableObject {
         max(0, 2 - currentNineLedger.usedPresses)
     }
 
+    var requiresTeeTossChoice: Bool {
+        currentHole == 1 && teeTossFirst == nil
+    }
+
+    var teesFirstTeam: TeamSide? {
+        leadingTeam ?? teeTossFirst
+    }
+
+    var teesSecondTeam: TeamSide? {
+        guard let first = teesFirstTeam else { return nil }
+        return first == .teamA ? .teamB : .teamA
+    }
+
     var canRequestPress: Bool {
-        trailingTeam != nil && !leaderTeedOff && pressesRemainingThisNine > 0 && !hasScoredCurrentHole
+        !requiresTeeTossChoice &&
+        trailingTeam != nil &&
+        !leaderTeedOff &&
+        pressesRemainingThisNine > 0 &&
+        !hasScoredCurrentHole
     }
 
     var canRequestRoll: Bool {
-        trailingTeam != nil && leaderTeedOff && !trailerTeedOff && !hasScoredCurrentHole
+        !requiresTeeTossChoice &&
+        trailingTeam != nil &&
+        leaderTeedOff &&
+        !trailerTeedOff &&
+        !hasScoredCurrentHole
     }
 
     var canRequestReroll: Bool {
-        leadingTeam != nil && requestRoll && !trailerTeedOff && !hasScoredCurrentHole
+        !requiresTeeTossChoice &&
+        leadingTeam != nil &&
+        requestRoll &&
+        !trailerTeedOff &&
+        !hasScoredCurrentHole
     }
 
     var currentHoleStrokeIndex: Int {
@@ -117,6 +145,10 @@ final class RoundScoringViewModel: ObservableObject {
         }
         guard !hasScoredCurrentHole else {
             errorMessage = "This hole is already scored. Tap Next Hole."
+            return
+        }
+        guard !requiresTeeTossChoice else {
+            errorMessage = "Set the tee toss before scoring Hole 1."
             return
         }
         guard canScore else {
@@ -235,6 +267,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func pressTapped() {
+        guard !requiresTeeTossChoice else { return }
         if requestPress {
             requestPress = false
             return
@@ -244,6 +277,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func rollTapped() {
+        guard !requiresTeeTossChoice else { return }
         if requestRoll {
             requestRoll = false
             requestReroll = false
@@ -254,6 +288,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func rerollTapped() {
+        guard !requiresTeeTossChoice else { return }
         if requestReroll {
             requestReroll = false
             return
@@ -263,11 +298,19 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func leaderTeedOffTapped() {
+        guard !requiresTeeTossChoice else { return }
         leaderTeedOff = true
     }
 
     func trailerTeedOffTapped() {
+        guard !requiresTeeTossChoice else { return }
         trailerTeedOff = true
+    }
+
+    func setTeeTossFirst(_ team: TeamSide) {
+        teeTossFirst = team
+        errorMessage = nil
+        persistRoundState()
     }
 
     private func parseGrossScores(_ raw: [String]) throws -> [Int] {
@@ -357,6 +400,7 @@ final class RoundScoringViewModel: ObservableObject {
 
     private func persistRoundState() {
         sessionStore.updateActiveRoundState(
+            teeTossFirst: teeTossFirst,
             currentHole: currentHole,
             isCurrentHoleScored: hasScoredCurrentHole,
             scoredHoleInputs: scoredHoleInputs,
@@ -386,6 +430,7 @@ final class RoundScoringViewModel: ObservableObject {
         holeHistory = rebuiltOutputs
         lastOutput = rebuiltOutputs.last
         currentHole = min(max(session.currentHole, 1), 18)
+        teeTossFirst = session.teeTossFirst
         hasScoredCurrentHole = session.isCurrentHoleScored
         holeResults = session.holeResults.sorted { $0.holeNumber < $1.holeNumber }
         strokesByPlayerByHole = session.strokesByPlayerByHole.sorted { $0.holeNumber < $1.holeNumber }

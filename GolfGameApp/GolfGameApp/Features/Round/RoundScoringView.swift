@@ -11,6 +11,13 @@ struct RoundScoringView: View {
         Form {
             Section("Tee Box") {
                 Text("Hole \(viewModel.currentHole) • Par \(viewModel.currentHolePar) • SI \(viewModel.currentHoleStrokeIndex)")
+                if let teesFirst = viewModel.teesFirstTeam {
+                    Text("Tee order: \(teamTitle(teesFirst)) tees first")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Tee order: Set tee toss to start round")
+                        .foregroundStyle(.secondary)
+                }
                 if let trailing = viewModel.trailingTeam {
                     Text("Trailing: \(teamTitle(trailing))")
                         .foregroundStyle(.secondary)
@@ -23,16 +30,49 @@ struct RoundScoringView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if viewModel.requiresTeeTossChoice {
+                    Text("Select tee toss before scoring Hole 1")
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("Team A tees first") {
+                            viewModel.setTeeTossFirst(.teamA)
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("Team B tees first") {
+                            viewModel.setTeeTossFirst(.teamB)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
                 HStack {
-                    Button(viewModel.leaderTeedOff ? "Leader Teed Off ✓" : "Leader Teed Off") {
+                    Button(
+                        viewModel.leaderTeedOff
+                        ? "\(teamTitle(viewModel.teesFirstTeam ?? .teamA)) Teed Off ✓"
+                        : "\(teamTitle(viewModel.teesFirstTeam ?? .teamA)) Teed Off"
+                    ) {
                         viewModel.leaderTeedOffTapped()
                     }
-                    .disabled(viewModel.leaderTeedOff || viewModel.hasScoredCurrentHole)
+                    .disabled(
+                        viewModel.requiresTeeTossChoice ||
+                        viewModel.leaderTeedOff ||
+                        viewModel.hasScoredCurrentHole
+                    )
 
-                    Button(viewModel.trailerTeedOff ? "Trailer Teed Off ✓" : "Trailer Teed Off") {
+                    Button(
+                        viewModel.trailerTeedOff
+                        ? "\(teamTitle(viewModel.teesSecondTeam ?? .teamB)) Teed Off ✓"
+                        : "\(teamTitle(viewModel.teesSecondTeam ?? .teamB)) Teed Off"
+                    ) {
                         viewModel.trailerTeedOffTapped()
                     }
-                    .disabled(viewModel.trailerTeedOff || !viewModel.leaderTeedOff || viewModel.hasScoredCurrentHole)
+                    .disabled(
+                        viewModel.requiresTeeTossChoice ||
+                        viewModel.trailerTeedOff ||
+                        !viewModel.leaderTeedOff ||
+                        viewModel.hasScoredCurrentHole
+                    )
                 }
 
                 if viewModel.canRequestPress || viewModel.requestPress {
