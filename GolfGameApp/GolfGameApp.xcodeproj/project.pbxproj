@@ -10,6 +10,8 @@
 		3C9B7D292F52BECC00E52115 /* GamesHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE0294D2F52131D003D1988 /* GamesHomeView.swift */; };
 		3C9B7D2A2F52BED200E52115 /* HistoryHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE0294E2F521333003D1988 /* HistoryHomeView.swift */; };
 		3C9B7D312F52C0F900E52115 /* RoundHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9B7D2F2F52C0F900E52115 /* RoundHomeView.swift */; };
+		3C9B7D502F5306A100E52115 /* RoundScoringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9B7D4F2F5306A100E52115 /* RoundScoringView.swift */; };
+		3C9B7D522F5306B700E52115 /* RoundScoringViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9B7D512F5306B700E52115 /* RoundScoringViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,6 +33,8 @@
 
 /* Begin PBXFileReference section */
 		3C9B7D2F2F52C0F900E52115 /* RoundHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundHomeView.swift; sourceTree = "<group>"; };
+		3C9B7D4F2F5306A100E52115 /* RoundScoringView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundScoringView.swift; sourceTree = "<group>"; };
+		3C9B7D512F5306B700E52115 /* RoundScoringViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundScoringViewModel.swift; sourceTree = "<group>"; };
 		3CE029132F521056003D1988 /* GolfGameApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GolfGameApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3CE029202F521057003D1988 /* GolfGameAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GolfGameAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3CE0292A2F521057003D1988 /* GolfGameAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GolfGameAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -85,6 +89,8 @@
 			isa = PBXGroup;
 			children = (
 				3C9B7D2F2F52C0F900E52115 /* RoundHomeView.swift */,
+				3C9B7D4F2F5306A100E52115 /* RoundScoringView.swift */,
+				3C9B7D512F5306B700E52115 /* RoundScoringViewModel.swift */,
 			);
 			path = Round;
 			sourceTree = "<group>";
@@ -354,6 +360,8 @@
 			files = (
 				3C9B7D2A2F52BED200E52115 /* HistoryHomeView.swift in Sources */,
 				3C9B7D312F52C0F900E52115 /* RoundHomeView.swift in Sources */,
+				3C9B7D502F5306A100E52115 /* RoundScoringView.swift in Sources */,
+				3C9B7D522F5306B700E52115 /* RoundScoringViewModel.swift in Sources */,
 				3C9B7D292F52BECC00E52115 /* GamesHomeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

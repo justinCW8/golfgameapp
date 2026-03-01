@@ -25,6 +25,11 @@ struct RoundHomeView: View {
                     RoundSetupFlowView()
                 }
                 .buttonStyle(.borderedProminent)
+
+                NavigationLink("Start Scotch Round") {
+                    RoundScoringView()
+                }
+                .buttonStyle(.bordered)
             }
             .padding()
             .navigationTitle("Round")
