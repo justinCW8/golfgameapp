@@ -10,7 +10,7 @@ struct RoundScoringView: View {
     var body: some View {
         Form {
             Section("Tee Box") {
-                Text("Hole \(viewModel.currentHole)")
+                Text("Hole \(viewModel.currentHole) • Par \(viewModel.currentHolePar) • SI \(viewModel.currentHoleStrokeIndex)")
                 if let trailing = viewModel.trailingTeam {
                     Text("Trailing: \(teamTitle(trailing))")
                         .foregroundStyle(.secondary)
@@ -61,28 +61,25 @@ struct RoundScoringView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if !viewModel.playerNames.isEmpty {
-                Section("Players") {
-                    ForEach(viewModel.playerNames, id: \.self) { name in
-                        Text(name)
+            Section("Player Gross / Net") {
+                ForEach(Array(viewModel.players.enumerated()), id: \.element.id) { index, player in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(player.name)
+                            Text("HI \(player.handicapIndex, specifier: "%.1f")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        TextField("Gross", text: grossBinding(at: index))
+                            .keyboardType(.numberPad)
+                            .frame(maxWidth: 80)
+                            .multilineTextAlignment(.trailing)
+                        Text("Net \(viewModel.netDisplay(forPlayerAt: index))")
+                            .frame(width: 80, alignment: .trailing)
+                            .foregroundStyle(.secondary)
                     }
                 }
-            }
-
-            Section("Team A Net") {
-                scorePairFields(inputs: $viewModel.teamANetInputs, prefix: "A Net")
-            }
-
-            Section("Team B Net") {
-                scorePairFields(inputs: $viewModel.teamBNetInputs, prefix: "B Net")
-            }
-
-            Section("Team A Gross") {
-                scorePairFields(inputs: $viewModel.teamAGrossInputs, prefix: "A Gross")
-            }
-
-            Section("Team B Gross") {
-                scorePairFields(inputs: $viewModel.teamBGrossInputs, prefix: "B Gross")
             }
 
             Section("Prox") {
@@ -124,6 +121,13 @@ struct RoundScoringView: View {
             }
 
             Section {
+                NavigationLink("View Scorecard") {
+                    RoundScorecardView(viewModel: viewModel)
+                }
+                .disabled(viewModel.holeResults.isEmpty)
+            }
+
+            Section {
                 Button("Next Hole") {
                     viewModel.goToNextHole()
                 }
@@ -132,6 +136,10 @@ struct RoundScoringView: View {
                 if viewModel.isRoundComplete {
                     Text("Round complete at 18 holes.")
                 }
+            }
+
+            if viewModel.isRoundComplete {
+                roundSummarySection
             }
 
             if let error = viewModel.errorMessage {
@@ -144,15 +152,83 @@ struct RoundScoringView: View {
         .navigationTitle("Scotch Scoring")
     }
 
-    @ViewBuilder
-    private func scorePairFields(inputs: Binding<[String]>, prefix: String) -> some View {
-        ForEach(0..<2, id: \.self) { index in
-            TextField("\(prefix) \(index + 1)", text: inputs[index])
-                .keyboardType(.numberPad)
+    private var roundSummarySection: some View {
+        Section("Round Summary") {
+            if let output = viewModel.lastOutput {
+                Text("Scotch Total Team A/B: \(output.totalTeamA) / \(output.totalTeamB)")
+            }
+            ForEach(viewModel.players) { player in
+                let gross = viewModel.totalGrossByPlayerID[player.id, default: 0]
+                let net = viewModel.totalNetByPlayerID[player.id, default: 0]
+                Text("\(player.name): Gross \(gross), Net \(net)")
+            }
         }
+    }
+
+    private func grossBinding(at index: Int) -> Binding<String> {
+        Binding(
+            get: {
+                guard viewModel.playerGrossInputs.indices.contains(index) else { return "" }
+                return viewModel.playerGrossInputs[index]
+            },
+            set: { newValue in
+                guard viewModel.playerGrossInputs.indices.contains(index) else { return }
+                viewModel.playerGrossInputs[index] = newValue
+            }
+        )
     }
 
     private func teamTitle(_ team: TeamSide) -> String {
         team == .teamA ? "Team A" : "Team B"
+    }
+}
+
+private struct RoundScorecardView: View {
+    @ObservedObject var viewModel: RoundScoringViewModel
+
+    var body: some View {
+        List {
+            Section("Holes") {
+                ForEach(viewModel.sortedHoleResults) { result in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Hole \(result.holeNumber)")
+                            .font(.headline)
+
+                        ForEach(viewModel.players) { player in
+                            let gross = result.grossByPlayerID[player.id, default: 0]
+                            let net = result.netByPlayerID[player.id, default: 0]
+                            let strokes = viewModel.strokesByPlayerByHole
+                                .first(where: { $0.holeNumber == result.holeNumber })?
+                                .strokesByPlayerID[player.id, default: 0] ?? 0
+
+                            HStack {
+                                Text(player.name)
+                                Spacer()
+                                Text("G \(gross)")
+                                Text("N \(net)")
+                                Text("St \(strokes)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.footnote)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
+            Section("Totals") {
+                ForEach(viewModel.players) { player in
+                    let gross = viewModel.totalGrossByPlayerID[player.id, default: 0]
+                    let net = viewModel.totalNetByPlayerID[player.id, default: 0]
+                    HStack {
+                        Text(player.name)
+                        Spacer()
+                        Text("Gross \(gross)")
+                        Text("Net \(net)")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Round Scorecard")
     }
 }

@@ -5,10 +5,7 @@ import Combine
 final class RoundScoringViewModel: ObservableObject {
     @Published var currentHole = 1
     @Published var holeHistory: [SixPointScotchHoleOutput] = []
-    @Published var teamANetInputs = ["", ""]
-    @Published var teamBNetInputs = ["", ""]
-    @Published var teamAGrossInputs = ["", ""]
-    @Published var teamBGrossInputs = ["", ""]
+    @Published var playerGrossInputs = ["", "", "", ""]
     @Published var proxWinner: ProxWinner = .none
     @Published var leaderTeedOff = false
     @Published var trailerTeedOff = false
@@ -19,19 +16,25 @@ final class RoundScoringViewModel: ObservableObject {
     @Published var hasScoredCurrentHole = false
     @Published var lastOutput: SixPointScotchHoleOutput?
     @Published var errorMessage: String?
+    @Published var holeResults: [HoleResult] = []
+    @Published var strokesByPlayerByHole: [HoleStrokeAllocation] = []
 
     private let sessionStore: SessionModel
     private var engine = SixPointScotchEngine()
     private var scoredHoleInputs: [SixPointScotchHoleInput] = []
-    private let requiredInputCount = 8
-
-    var playerNames: [String] {
-        sessionStore.activeRoundSession?.setup.players.map(\.name) ?? []
-    }
+    private let requiredInputCount = 4
 
     init(sessionStore: SessionModel) {
         self.sessionStore = sessionStore
         restoreFromSession()
+    }
+
+    var players: [PlayerSnapshot] {
+        sessionStore.activeRoundSession?.setup.players ?? []
+    }
+
+    var playerNames: [String] {
+        players.map(\.name)
     }
 
     var canScore: Bool {
@@ -73,6 +76,40 @@ final class RoundScoringViewModel: ObservableObject {
         leadingTeam != nil && requestRoll && !trailerTeedOff && !hasScoredCurrentHole
     }
 
+    var currentHoleStrokeIndex: Int {
+        holeConfig(for: currentHole)?.strokeIndex ?? currentHole
+    }
+
+    var currentHolePar: Int {
+        holeConfig(for: currentHole)?.par ?? 4
+    }
+
+    var sortedHoleResults: [HoleResult] {
+        holeResults.sorted { $0.holeNumber < $1.holeNumber }
+    }
+
+    var totalGrossByPlayerID: [String: Int] {
+        aggregate(
+            values: holeResults.map(\.grossByPlayerID),
+            playerIDs: players.map(\.id)
+        )
+    }
+
+    var totalNetByPlayerID: [String: Int] {
+        aggregate(
+            values: holeResults.map(\.netByPlayerID),
+            playerIDs: players.map(\.id)
+        )
+    }
+
+    func netDisplay(forPlayerAt index: Int) -> String {
+        guard players.indices.contains(index) else { return "-" }
+        let raw = playerGrossInputs[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let gross = Int(raw) else { return "-" }
+        let strokes = strokeCount(for: players[index], onHoleStrokeIndex: currentHoleStrokeIndex)
+        return String(gross - strokes)
+    }
+
     func scoreCurrentHole() {
         guard currentHole <= 18 else {
             errorMessage = "Round is complete."
@@ -83,7 +120,7 @@ final class RoundScoringViewModel: ObservableObject {
             return
         }
         guard canScore else {
-            errorMessage = "Enter all 8 required scores as whole numbers."
+            errorMessage = "Enter all 4 player gross scores as whole numbers."
             return
         }
         guard !requestReroll || requestRoll else {
@@ -92,10 +129,32 @@ final class RoundScoringViewModel: ObservableObject {
         }
 
         do {
-            let teamANet = try parseIntPair(teamANetInputs, label: "Team A net")
-            let teamBNet = try parseIntPair(teamBNetInputs, label: "Team B net")
-            let teamAGross = try parseIntPair(teamAGrossInputs, label: "Team A gross")
-            let teamBGross = try parseIntPair(teamBGrossInputs, label: "Team B gross")
+            let grossScores = try parseGrossScores(playerGrossInputs)
+            let holePar = currentHolePar
+            let playerIDs = players.map(\.id)
+            guard playerIDs.count == 4 else {
+                throw ValidationError("Round requires exactly 4 players.")
+            }
+
+            let strokesByPlayer = Dictionary(uniqueKeysWithValues: players.map { player in
+                (player.id, strokeCount(for: player, onHoleStrokeIndex: currentHoleStrokeIndex))
+            })
+            let grossByPlayer = Dictionary(uniqueKeysWithValues: zip(playerIDs, grossScores))
+            let netByPlayer = Dictionary(uniqueKeysWithValues: playerIDs.map { id in
+                (id, (grossByPlayer[id] ?? 0) - (strokesByPlayer[id] ?? 0))
+            })
+
+            let teamAIDs = teamPlayerIDs(for: .teamA)
+            let teamBIDs = teamPlayerIDs(for: .teamB)
+            guard teamAIDs.count == 2, teamBIDs.count == 2 else {
+                throw ValidationError("Team assignments are incomplete.")
+            }
+
+            let teamAGross = teamAIDs.map { grossByPlayer[$0] ?? 0 }
+            let teamBGross = teamBIDs.map { grossByPlayer[$0] ?? 0 }
+            let teamANet = teamAIDs.map { netByPlayer[$0] ?? 0 }
+            let teamBNet = teamBIDs.map { netByPlayer[$0] ?? 0 }
+
             let (teamAProx, teamBProx) = proxDistancesFromWinner(proxWinner)
             let leader = leadingTeam
             let trailing = trailingTeam
@@ -112,7 +171,7 @@ final class RoundScoringViewModel: ObservableObject {
 
             let input = SixPointScotchHoleInput(
                 holeNumber: currentHole,
-                par: 4,
+                par: holePar,
                 teamANetScores: teamANet,
                 teamBNetScores: teamBNet,
                 teamAGrossScores: teamAGross,
@@ -131,6 +190,17 @@ final class RoundScoringViewModel: ObservableObject {
             holeHistory.append(output)
             lastOutput = output
             hasScoredCurrentHole = true
+
+            let holeResult = HoleResult(
+                holeNumber: currentHole,
+                grossByPlayerID: grossByPlayer,
+                netByPlayerID: netByPlayer
+            )
+            upsertHoleResult(holeResult)
+            upsertHoleStrokeAllocation(
+                HoleStrokeAllocation(holeNumber: currentHole, strokesByPlayerID: strokesByPlayer)
+            )
+
             errorMessage = nil
             resetHoleActionState()
             persistRoundState()
@@ -162,44 +232,6 @@ final class RoundScoringViewModel: ObservableObject {
 
     var isRoundComplete: Bool {
         currentHole == 18 && hasScoredCurrentHole
-    }
-
-    private func parseIntPair(_ raw: [String], label: String) throws -> [Int] {
-        guard raw.count == 2 else { throw ValidationError("\(label) must have 2 values.") }
-        return try raw.map {
-            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let value = Int(trimmed) else {
-                throw ValidationError("\(label) must be whole numbers.")
-            }
-            return value
-        }
-    }
-
-    private func leaderForLedger(_ ledger: NineLedger) -> TeamSide? {
-        if ledger.teamAPoints == ledger.teamBPoints { return nil }
-        return ledger.teamAPoints > ledger.teamBPoints ? .teamA : .teamB
-    }
-
-    private func trailingForLedger(_ ledger: NineLedger) -> TeamSide? {
-        if ledger.teamAPoints == ledger.teamBPoints { return nil }
-        return ledger.teamAPoints < ledger.teamBPoints ? .teamA : .teamB
-    }
-
-    private func resetInputsForNextHole() {
-        teamANetInputs = ["", ""]
-        teamBNetInputs = ["", ""]
-        teamAGrossInputs = ["", ""]
-        teamBGrossInputs = ["", ""]
-        proxWinner = .none
-        resetHoleActionState()
-    }
-
-    private func resetHoleActionState() {
-        leaderTeedOff = false
-        trailerTeedOff = false
-        requestPress = false
-        requestRoll = false
-        requestReroll = false
     }
 
     func pressTapped() {
@@ -238,6 +270,76 @@ final class RoundScoringViewModel: ObservableObject {
         trailerTeedOff = true
     }
 
+    private func parseGrossScores(_ raw: [String]) throws -> [Int] {
+        guard raw.count == requiredInputCount else {
+            throw ValidationError("Exactly 4 gross scores are required.")
+        }
+        return try raw.map {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let value = Int(trimmed) else {
+                throw ValidationError("Gross scores must be whole numbers.")
+            }
+            return value
+        }
+    }
+
+    private func strokeCount(for player: PlayerSnapshot, onHoleStrokeIndex si: Int) -> Int {
+        let courseHandicap = max(0, Int(player.handicapIndex.rounded(.down)))
+        let base = courseHandicap / 18
+        let remainder = courseHandicap % 18
+        return base + (si <= remainder ? 1 : 0)
+    }
+
+    private func holeConfig(for holeNumber: Int) -> CourseHoleStub? {
+        sessionStore.activeRoundSession?.setup.holes.first(where: { $0.number == holeNumber })
+    }
+
+    private func teamPlayerIDs(for team: TeamSide) -> [String] {
+        sessionStore.activeRoundSession?.setup.pairings.first(where: { $0.team == team })?.players.map(\.id) ?? []
+    }
+
+    private func leaderForLedger(_ ledger: NineLedger) -> TeamSide? {
+        if ledger.teamAPoints == ledger.teamBPoints { return nil }
+        return ledger.teamAPoints > ledger.teamBPoints ? .teamA : .teamB
+    }
+
+    private func trailingForLedger(_ ledger: NineLedger) -> TeamSide? {
+        if ledger.teamAPoints == ledger.teamBPoints { return nil }
+        return ledger.teamAPoints < ledger.teamBPoints ? .teamA : .teamB
+    }
+
+    private func resetInputsForNextHole() {
+        playerGrossInputs = ["", "", "", ""]
+        proxWinner = .none
+        resetHoleActionState()
+    }
+
+    private func resetHoleActionState() {
+        leaderTeedOff = false
+        trailerTeedOff = false
+        requestPress = false
+        requestRoll = false
+        requestReroll = false
+    }
+
+    private func upsertHoleResult(_ result: HoleResult) {
+        if let index = holeResults.firstIndex(where: { $0.holeNumber == result.holeNumber }) {
+            holeResults[index] = result
+        } else {
+            holeResults.append(result)
+        }
+        holeResults.sort { $0.holeNumber < $1.holeNumber }
+    }
+
+    private func upsertHoleStrokeAllocation(_ value: HoleStrokeAllocation) {
+        if let index = strokesByPlayerByHole.firstIndex(where: { $0.holeNumber == value.holeNumber }) {
+            strokesByPlayerByHole[index] = value
+        } else {
+            strokesByPlayerByHole.append(value)
+        }
+        strokesByPlayerByHole.sort { $0.holeNumber < $1.holeNumber }
+    }
+
     private func message(for error: SixPointScotchActionError) -> String {
         switch error {
         case .holeOutOfRange: return "Hole number must be between 1 and 18."
@@ -257,7 +359,9 @@ final class RoundScoringViewModel: ObservableObject {
         sessionStore.updateActiveRoundState(
             currentHole: currentHole,
             isCurrentHoleScored: hasScoredCurrentHole,
-            scoredHoleInputs: scoredHoleInputs
+            scoredHoleInputs: scoredHoleInputs,
+            holeResults: holeResults,
+            strokesByPlayerByHole: strokesByPlayerByHole
         )
     }
 
@@ -283,6 +387,8 @@ final class RoundScoringViewModel: ObservableObject {
         lastOutput = rebuiltOutputs.last
         currentHole = min(max(session.currentHole, 1), 18)
         hasScoredCurrentHole = session.isCurrentHoleScored
+        holeResults = session.holeResults.sorted { $0.holeNumber < $1.holeNumber }
+        strokesByPlayerByHole = session.strokesByPlayerByHole.sorted { $0.holeNumber < $1.holeNumber }
     }
 
     private func proxDistancesFromWinner(_ winner: ProxWinner) -> (Double?, Double?) {
@@ -294,6 +400,16 @@ final class RoundScoringViewModel: ObservableObject {
         case .none:
             return (nil, nil)
         }
+    }
+
+    private func aggregate(values: [[String: Int]], playerIDs: [String]) -> [String: Int] {
+        var totals = Dictionary(uniqueKeysWithValues: playerIDs.map { ($0, 0) })
+        for dictionary in values {
+            for (id, value) in dictionary {
+                totals[id, default: 0] += value
+            }
+        }
+        return totals
     }
 }
 
@@ -307,7 +423,7 @@ private struct ValidationError: Error {
 
 private extension RoundScoringViewModel {
     var allRequiredInputs: [String] {
-        teamANetInputs + teamBNetInputs + teamAGrossInputs + teamBGrossInputs
+        playerGrossInputs
     }
 }
 

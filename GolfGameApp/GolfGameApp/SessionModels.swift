@@ -109,13 +109,71 @@ struct RoundSetupSession: Codable, Hashable {
     }
 }
 
+struct HoleResult: Codable, Hashable, Identifiable {
+    var id: Int { holeNumber }
+    var holeNumber: Int
+    var grossByPlayerID: [String: Int]
+    var netByPlayerID: [String: Int]
+}
+
+struct HoleStrokeAllocation: Codable, Hashable, Identifiable {
+    var id: Int { holeNumber }
+    var holeNumber: Int
+    var strokesByPlayerID: [String: Int]
+}
+
 struct RoundSession: Codable {
     var id: UUID
     var setup: RoundSetupSession
     var currentHole: Int
     var isCurrentHoleScored: Bool
     var scoredHoleInputs: [SixPointScotchHoleInput]
+    var holeResults: [HoleResult]
+    var strokesByPlayerByHole: [HoleStrokeAllocation]
     var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case setup
+        case currentHole
+        case isCurrentHoleScored
+        case scoredHoleInputs
+        case holeResults
+        case strokesByPlayerByHole
+        case updatedAt
+    }
+
+    init(
+        id: UUID,
+        setup: RoundSetupSession,
+        currentHole: Int,
+        isCurrentHoleScored: Bool,
+        scoredHoleInputs: [SixPointScotchHoleInput],
+        holeResults: [HoleResult],
+        strokesByPlayerByHole: [HoleStrokeAllocation],
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.setup = setup
+        self.currentHole = currentHole
+        self.isCurrentHoleScored = isCurrentHoleScored
+        self.scoredHoleInputs = scoredHoleInputs
+        self.holeResults = holeResults
+        self.strokesByPlayerByHole = strokesByPlayerByHole
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        setup = try container.decode(RoundSetupSession.self, forKey: .setup)
+        currentHole = try container.decode(Int.self, forKey: .currentHole)
+        isCurrentHoleScored = try container.decode(Bool.self, forKey: .isCurrentHoleScored)
+        scoredHoleInputs = try container.decode([SixPointScotchHoleInput].self, forKey: .scoredHoleInputs)
+        holeResults = try container.decodeIfPresent([HoleResult].self, forKey: .holeResults) ?? []
+        strokesByPlayerByHole = try container.decodeIfPresent([HoleStrokeAllocation].self, forKey: .strokesByPlayerByHole) ?? []
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
 }
 
 private struct AppSessionSnapshot: Codable {
@@ -148,16 +206,26 @@ final class AppSessionStore: ObservableObject {
             currentHole: 1,
             isCurrentHoleScored: false,
             scoredHoleInputs: [],
+            holeResults: [],
+            strokesByPlayerByHole: [],
             updatedAt: Date()
         )
         persist()
     }
 
-    func updateActiveRoundState(currentHole: Int, isCurrentHoleScored: Bool, scoredHoleInputs: [SixPointScotchHoleInput]) {
+    func updateActiveRoundState(
+        currentHole: Int,
+        isCurrentHoleScored: Bool,
+        scoredHoleInputs: [SixPointScotchHoleInput],
+        holeResults: [HoleResult],
+        strokesByPlayerByHole: [HoleStrokeAllocation]
+    ) {
         guard var active = activeRoundSession else { return }
         active.currentHole = currentHole
         active.isCurrentHoleScored = isCurrentHoleScored
         active.scoredHoleInputs = scoredHoleInputs
+        active.holeResults = holeResults
+        active.strokesByPlayerByHole = strokesByPlayerByHole
         active.updatedAt = Date()
         activeRoundSession = active
         persist()
