@@ -178,6 +178,10 @@ final class RoundScoringViewModel: ObservableObject {
         holeConfig(for: currentHole)?.par ?? 4
     }
 
+    var currentHoleYardage: Int {
+        holeConfig(for: currentHole)?.yardage ?? 0
+    }
+
     var sortedHoleResults: [HoleResult] {
         holeResults.sorted { $0.holeNumber < $1.holeNumber }
     }
@@ -247,7 +251,7 @@ final class RoundScoringViewModel: ObservableObject {
         guard let grossLow = grossValues.min(), let netLow = netValues.min() else {
             return "\(teamDisplayName(for: team)): - for -"
         }
-        return "\(teamDisplayName(for: team)): \(grossLow) for \(netLow)"
+        return "\(teamDisplayName(for: team)): Net \(netLow) (Gross \(grossLow))"
     }
 
     func scoreCurrentHole() {

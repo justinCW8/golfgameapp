@@ -51,11 +51,74 @@ struct PlayerDraft: Identifiable, Codable, Hashable {
     }
 }
 
+struct Buddy: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var name: String
+    var handicapIndex: Double
+}
+
+@MainActor
+final class BuddyStore: ObservableObject {
+    @Published var buddies: [Buddy] = []
+    private static let key = "golf_buddies"
+
+    init() { load() }
+
+    func add(name: String, handicapIndex: Double) {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        guard !buddies.contains(where: { $0.name.lowercased() == name.lowercased() }) else { return }
+        buddies.append(Buddy(name: name, handicapIndex: handicapIndex))
+        save()
+    }
+
+    func update(_ buddy: Buddy) {
+        if let idx = buddies.firstIndex(where: { $0.id == buddy.id }) {
+            buddies[idx] = buddy
+            save()
+        }
+    }
+
+    func remove(at offsets: IndexSet) {
+        for i in offsets.sorted().reversed() {
+            buddies.remove(at: i)
+        }
+        save()
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(buddies) {
+            UserDefaults.standard.set(data, forKey: Self.key)
+        }
+    }
+
+    private func load() {
+        guard let data = UserDefaults.standard.data(forKey: Self.key),
+              let decoded = try? JSONDecoder().decode([Buddy].self, from: data) else { return }
+        buddies = decoded
+    }
+}
+
 struct CourseHoleStub: Identifiable, Codable, Hashable {
     var id: Int { number }
     var number: Int
     var par: Int
     var strokeIndex: Int
+    var yardage: Int
+
+    init(number: Int, par: Int, strokeIndex: Int, yardage: Int = 0) {
+        self.number = number
+        self.par = par
+        self.strokeIndex = strokeIndex
+        self.yardage = yardage
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        number = try c.decode(Int.self, forKey: .number)
+        par = try c.decode(Int.self, forKey: .par)
+        strokeIndex = try c.decode(Int.self, forKey: .strokeIndex)
+        yardage = try c.decodeIfPresent(Int.self, forKey: .yardage) ?? 0
+    }
 }
 
 struct TeamPairing: Identifiable, Codable, Hashable {
@@ -407,9 +470,10 @@ enum DemoCourseFactory {
     static let name = "Demo Course"
 
     static func holes18() -> [CourseHoleStub] {
-        let pars = [4, 4, 3, 5, 4, 4, 3, 5, 4, 4, 3, 5, 4, 4, 3, 5, 4, 4]
+        let pars =      [4,   4,   3,   5,   4,   4,   3,   5,   4,   4,   3,   5,   4,   4,   3,   5,   4,   4]
+        let yardages =  [385, 420, 155, 535, 395, 370, 165, 520, 410, 400, 145, 545, 375, 430, 170, 510, 385, 450]
         return (1...18).map {
-            CourseHoleStub(number: $0, par: pars[$0 - 1], strokeIndex: $0)
+            CourseHoleStub(number: $0, par: pars[$0 - 1], strokeIndex: $0, yardage: yardages[$0 - 1])
         }
     }
 }

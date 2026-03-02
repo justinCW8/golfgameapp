@@ -18,104 +18,101 @@ struct RoundScoringView: View {
                 Color.clear
                     .frame(height: 0)
                     .id("TOP")
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
 
-                Section("Match") {
-                    Text("Status: \(viewModel.matchStatusDisplay)")
-                        .font(.title3.weight(.semibold))
-                    Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Tee Box: \(viewModel.teeBoxName)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    if viewModel.isRoundEnded {
-                        Text("Round ended. Scoring is read-only.")
+                // SCOREBOARD — always at top
+                Section {
+                    VStack(spacing: 6) {
+                        Text(viewModel.matchStatusDisplay)
+                            .font(.title2.weight(.bold))
+                            .multilineTextAlignment(.center)
+                        Text("\(viewModel.teamAName)  vs  \(viewModel.teamBName)")
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        Text("Hole \(viewModel.currentHole)  ·  Par \(viewModel.currentHolePar)  ·  \(viewModel.currentHoleYardage)yds  ·  HCP \(viewModel.currentHoleStrokeIndex)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.blue)
+                        Text(viewModel.teeBoxName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if viewModel.isRoundEnded {
+                            Text("Round ended — read only")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
                 }
 
-                Section("Tee Box") {
-                    Text("Hole \(viewModel.currentHole) • Par \(viewModel.currentHolePar) • Handicap \(viewModel.currentHoleStrokeIndex)")
-                    if let teesFirst = viewModel.teesFirstTeam {
-                        Text("Tee order: \(teamName(teesFirst)) tees first")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Tee order: Set tee toss to start round")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Button(
-                            viewModel.leaderTeedOff
-                            ? "\(teamName(viewModel.teesFirstTeam ?? .teamA)) Teed Off ✓"
-                            : "\(teamName(viewModel.teesFirstTeam ?? .teamA)) Teed Off"
-                        ) {
-                            viewModel.leaderTeedOffTapped()
-                        }
-                        .disabled(
-                            viewModel.requiresTeeTossChoice ||
-                            viewModel.leaderTeedOff ||
-                            viewModel.hasScoredCurrentHole
-                        )
-
-                        Button(
-                            viewModel.trailerTeedOff
-                            ? "\(teamName(viewModel.teesSecondTeam ?? .teamB)) Teed Off ✓"
-                            : "\(teamName(viewModel.teesSecondTeam ?? .teamB)) Teed Off"
-                        ) {
-                            viewModel.trailerTeedOffTapped()
-                        }
-                        .disabled(
-                            viewModel.requiresTeeTossChoice ||
-                            viewModel.trailerTeedOff ||
-                            !viewModel.leaderTeedOff ||
-                            viewModel.hasScoredCurrentHole
-                        )
-                    }
-
+                // TEE ORDER
+                Section("Tee Order") {
                     if viewModel.requiresTeeTossChoice {
-                        Text("Select tee toss before scoring Hole 1")
+                        Text("Who tees first on Hole 1?")
                             .foregroundStyle(.secondary)
                         HStack {
                             Button("\(viewModel.teamAName) tees first") {
                                 viewModel.setTeeTossFirst(.teamA)
                             }
                             .buttonStyle(.borderedProminent)
-
                             Button("\(viewModel.teamBName) tees first") {
                                 viewModel.setTeeTossFirst(.teamB)
                             }
                             .buttonStyle(.bordered)
                         }
+                    } else {
+                        if let teesFirst = viewModel.teesFirstTeam {
+                            Text("\(teamName(teesFirst)) tees first")
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Button(
+                                viewModel.leaderTeedOff
+                                ? "\(teamName(viewModel.teesFirstTeam ?? .teamA)) Teed Off ✓"
+                                : "\(teamName(viewModel.teesFirstTeam ?? .teamA)) Teed Off"
+                            ) {
+                                viewModel.leaderTeedOffTapped()
+                            }
+                            .disabled(viewModel.leaderTeedOff || viewModel.hasScoredCurrentHole)
+
+                            Button(
+                                viewModel.trailerTeedOff
+                                ? "\(teamName(viewModel.teesSecondTeam ?? .teamB)) Teed Off ✓"
+                                : "\(teamName(viewModel.teesSecondTeam ?? .teamB)) Teed Off"
+                            ) {
+                                viewModel.trailerTeedOffTapped()
+                            }
+                            .disabled(viewModel.trailerTeedOff || !viewModel.leaderTeedOff || viewModel.hasScoredCurrentHole)
+                        }
                     }
 
                     if viewModel.canRequestPress || viewModel.requestPress {
-                        Button(viewModel.requestPress ? "Press Selected ✓" : "Press") {
+                        Button(viewModel.requestPress ? "Press ✓" : "Press") {
                             viewModel.pressTapped()
                         }
                         .disabled(!viewModel.canRequestPress && !viewModel.requestPress)
                     }
-
                     if viewModel.canRequestRoll || viewModel.requestRoll {
-                        Button(viewModel.requestRoll ? "Roll Selected ✓" : "Roll") {
+                        Button(viewModel.requestRoll ? "Roll ✓" : "Roll") {
                             viewModel.rollTapped()
                         }
                         .disabled(!viewModel.canRequestRoll && !viewModel.requestRoll)
                     }
-
                     if viewModel.canRequestReroll || viewModel.requestReroll {
-                        Button(viewModel.requestReroll ? "Re-roll Selected ✓" : "Re-roll") {
+                        Button(viewModel.requestReroll ? "Re-roll ✓" : "Re-roll") {
                             viewModel.rerollTapped()
                         }
                         .disabled(!viewModel.canRequestReroll && !viewModel.requestReroll)
                     }
-
                     Text("Presses remaining this nine: \(viewModel.pressesRemainingThisNine)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 .disabled(viewModel.isRoundEnded)
 
+                // SCORE ENTRY
                 Section("Player Gross / Net") {
                     ForEach(Array(viewModel.players.enumerated()), id: \.element.id) { index, player in
                         PlayerScoreRow(
@@ -134,72 +131,22 @@ struct RoundScoringView: View {
                     Text(viewModel.teamHoleSummaryDisplay(for: .teamB))
                         .font(.subheadline)
                     if viewModel.proxWinner == .none {
-                        Button("None / No GIR ✓") {
-                            viewModel.proxWinner = .none
-                        }
-                        .buttonStyle(.borderedProminent)
+                        Button("None / No GIR ✓") { viewModel.proxWinner = .none }
+                            .buttonStyle(.borderedProminent)
                     } else {
-                        Button("None / No GIR") {
-                            viewModel.proxWinner = .none
-                        }
-                        .buttonStyle(.bordered)
+                        Button("None / No GIR") { viewModel.proxWinner = .none }
+                            .buttonStyle(.bordered)
                     }
                 }
                 .disabled(viewModel.isRoundEnded)
 
+                // SCORE HOLE + NEXT HOLE together
                 Section {
                     Button("Score Hole") {
                         viewModel.scoreCurrentHole()
                     }
                     .disabled(viewModel.isRoundEnded || viewModel.isRoundComplete || viewModel.hasScoredCurrentHole || !viewModel.canScore)
-                }
 
-                if let output = viewModel.lastOutput {
-                    Section("Status") {
-                        Text("Status: \(viewModel.matchStatusDisplay)")
-                        Text("Up/Down: \(viewModel.runningUpDownDisplay)")
-                            .foregroundStyle(.secondary)
-                        Text(viewModel.lastHolePointsWinnerDisplay)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section {
-                        DisclosureGroup(
-                            isExpanded: $showLastHoleDetails,
-                            content: {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Hole \(output.holeNumber)")
-                                        .font(.subheadline.weight(.semibold))
-                                    Text("Raw \(viewModel.teamAName) / \(viewModel.teamBName): \(output.rawTeamAPoints) / \(output.rawTeamBPoints)")
-                                    Text("Multiplier: x\(output.multiplier)")
-                                    Text("Multiplied \(viewModel.teamAName) / \(viewModel.teamBName): \(output.multipliedTeamAPoints) / \(output.multipliedTeamBPoints)")
-                                    Text("Running \(viewModel.teamAName) / \(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
-                                }
-
-                                if !viewModel.latestAuditLines.isEmpty {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Audit Log")
-                                            .font(.subheadline.weight(.semibold))
-                                        ForEach(viewModel.latestAuditLines, id: \.self) { line in
-                                            Text(line)
-                                                .font(.footnote)
-                                        }
-                                    }
-                                }
-                            },
-                            label: { Text("Last hole details") }
-                        )
-                    }
-                }
-
-                Section {
-                    NavigationLink("View Scorecard") {
-                        RoundScorecardView(viewModel: viewModel)
-                    }
-                    .disabled(viewModel.holeResults.isEmpty)
-                }
-
-                Section {
                     Button("Next Hole") {
                         viewModel.goToNextHole()
                         showLastHoleDetails = false
@@ -210,8 +157,48 @@ struct RoundScoringView: View {
                     .disabled(viewModel.isRoundEnded || !viewModel.hasScoredCurrentHole || viewModel.currentHole >= 18)
 
                     if viewModel.isRoundComplete {
-                        Text("Round complete at 18 holes.")
+                        Text("Round complete — 18 holes done.")
+                            .foregroundStyle(.secondary)
                     }
+                }
+
+                // LAST HOLE DETAILS (collapsible)
+                if let output = viewModel.lastOutput {
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: $showLastHoleDetails,
+                            content: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Hole \(output.holeNumber)")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(viewModel.lastHolePointsWinnerDisplay)
+                                    Text("Running: \(viewModel.runningUpDownDisplay)")
+                                        .foregroundStyle(.secondary)
+                                    Text("Multiplier: x\(output.multiplier)")
+                                        .foregroundStyle(.secondary)
+                                }
+                                if !viewModel.latestAuditLines.isEmpty {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Audit Log")
+                                            .font(.subheadline.weight(.semibold))
+                                            .padding(.top, 4)
+                                        ForEach(viewModel.latestAuditLines, id: \.self) { line in
+                                            Text(line).font(.footnote)
+                                        }
+                                    }
+                                }
+                            },
+                            label: { Text("Last hole details") }
+                        )
+                    }
+                }
+
+                // SCORECARD + END ROUND
+                Section {
+                    NavigationLink("View Scorecard") {
+                        RoundScorecardView(viewModel: viewModel)
+                    }
+                    .disabled(viewModel.holeResults.isEmpty)
                 }
 
                 Section {
@@ -230,8 +217,7 @@ struct RoundScoringView: View {
 
                 if let error = viewModel.errorMessage {
                     Section("Error") {
-                        Text(error)
-                            .foregroundStyle(.red)
+                        Text(error).foregroundStyle(.red)
                     }
                 }
             }
@@ -337,11 +323,11 @@ private struct PlayerScoreRow: View {
                 .multilineTextAlignment(.trailing)
                 .disabled(readOnly)
             if proxSelected {
-                Button("PRO ✓", action: onTapProx)
+                Button("PROX ✓", action: onTapProx)
                     .buttonStyle(.borderedProminent)
                     .disabled(readOnly)
             } else {
-                Button("PRO", action: onTapProx)
+                Button("PROX", action: onTapProx)
                     .buttonStyle(.bordered)
                     .disabled(readOnly)
             }

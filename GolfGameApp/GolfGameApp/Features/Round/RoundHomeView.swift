@@ -14,24 +14,27 @@ struct RoundHomeView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(spacing: 16) {
+            VStack(spacing: 20) {
+                Spacer()
+
                 if let configuredRound = session.configuredRound {
                     ConfiguredRoundCard(round: configuredRound)
-                } else {
-                    Text("No round configured")
-                        .foregroundStyle(.secondary)
+
+                    Button("Resume Round") {
+                        path.append(.scoring)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(session.activeRoundSession == nil)
                 }
 
-                Button("Start Round Setup") {
+                Button(session.configuredRound != nil ? "New Round" : "Start New Round") {
                     path.append(.setup)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(session.configuredRound != nil ? .bordered : .borderedProminent)
+                .controlSize(.large)
 
-                Button("Start Scotch Round") {
-                    path.append(.scoring)
-                }
-                .buttonStyle(.bordered)
-                .disabled(session.activeRoundSession == nil)
+                Spacer()
             }
             .padding()
             .navigationTitle("Round")
@@ -150,26 +153,91 @@ private struct EventCreationScreen: View {
 
 private struct PlayerEntryScreen: View {
     @ObservedObject var viewModel: RoundSetupViewModel
+    @EnvironmentObject var buddyStore: BuddyStore
     let onFinish: (RoundSetupSession) -> Void
+
+    private var nextEmptyIndex: Int? {
+        viewModel.players.indices.first { viewModel.players[$0].name.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
 
     var body: some View {
         Form {
-            Section("Players (exactly 4)") {
-                ForEach(0..<4, id: \.self) { index in
-                    VStack(alignment: .leading) {
-                        TextField("Player \(index + 1) name", text: $viewModel.players[index].name)
+            // SAVED BUDDIES
+            Section {
+                if buddyStore.buddies.isEmpty {
+                    Text("No buddies saved yet — enter players below and tap the bookmark to save them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(buddyStore.buddies) { buddy in
                         HStack {
-                            Text("Handicap Index")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(buddy.name)
+                                    .font(.subheadline)
+                                Text(String(format: "HI %.1f", buddy.handicapIndex))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             Spacer()
-                            TextField("0.0", value: $viewModel.players[index].handicapIndex, format: .number.precision(.fractionLength(1)))
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(maxWidth: 80)
+                            Button {
+                                if let idx = nextEmptyIndex {
+                                    viewModel.players[idx].name = buddy.name
+                                    viewModel.players[idx].handicapIndex = buddy.handicapIndex
+                                }
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundStyle(nextEmptyIndex != nil ? .blue : .secondary)
+                            }
+                            .disabled(nextEmptyIndex == nil)
+                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .onDelete { offsets in
+                        buddyStore.remove(at: offsets)
+                    }
+                }
+            } header: {
+                Text("Saved Buddies")
+            } footer: {
+                if !buddyStore.buddies.isEmpty {
+                    Text("Tap + to fill the next open slot. Swipe to remove.")
+                        .font(.caption)
                 }
             }
+
+            // PLAYER SLOTS
+            Section("Players (exactly 4)") {
+                ForEach(0..<4, id: \.self) { index in
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading) {
+                            TextField("Player \(index + 1) name", text: $viewModel.players[index].name)
+                            HStack {
+                                Text("HI")
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                                TextField("0.0", value: $viewModel.players[index].handicapIndex, format: .number.precision(.fractionLength(1)))
+                                    .keyboardType(.decimalPad)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: 50)
+                            }
+                        }
+                        Spacer()
+                        let name = viewModel.players[index].name.trimmingCharacters(in: .whitespaces)
+                        if !name.isEmpty {
+                            Button {
+                                buddyStore.add(name: name, handicapIndex: viewModel.players[index].handicapIndex)
+                            } label: {
+                                Image(systemName: buddyStore.buddies.contains(where: { $0.name.lowercased() == name.lowercased() }) ? "bookmark.fill" : "bookmark")
+                                    .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
             Section {
                 NavigationLink("Next: Course") {
                     CourseStubScreen(viewModel: viewModel, onFinish: onFinish)
@@ -243,7 +311,7 @@ private struct TeamAssignmentScreen: View {
         .navigationTitle("Teams")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Finish") {
+                Button("Start Round") {
                     viewModel.commit(into: session)
                     if let configured = session.configuredRound {
                         onFinish(configured)
