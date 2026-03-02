@@ -8,6 +8,7 @@
 import SwiftUI
 import Combine
 import UIKit
+import PhotosUI
 
 struct RoundHomeView: View {
     @EnvironmentObject private var session: SessionModel
@@ -163,6 +164,7 @@ private struct EventCreationScreen: View {
 private struct PlayerEntryScreen: View {
     @ObservedObject var viewModel: RoundSetupViewModel
     @EnvironmentObject var buddyStore: BuddyStore
+    @State private var showBuddies = false
     let onFinish: (RoundSetupSession) -> Void
 
     private var nextEmptyIndex: Int? {
@@ -171,57 +173,13 @@ private struct PlayerEntryScreen: View {
 
     var body: some View {
         Form {
-            // SAVED BUDDIES
-            Section {
-                if buddyStore.buddies.isEmpty {
-                    Text("No buddies saved yet — enter players below and tap the bookmark to save them.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(buddyStore.buddies) { buddy in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(buddy.name)
-                                    .font(.subheadline)
-                                Text(String(format: "HI %.1f", buddy.handicapIndex))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button {
-                                if let idx = nextEmptyIndex {
-                                    viewModel.players[idx].name = buddy.name
-                                    viewModel.players[idx].handicapIndex = buddy.handicapIndex
-                                }
-                            } label: {
-                                Image(systemName: "plus.circle.fill")
-                                    .foregroundStyle(nextEmptyIndex != nil ? .blue : .secondary)
-                            }
-                            .disabled(nextEmptyIndex == nil)
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .onDelete { offsets in
-                        buddyStore.remove(at: offsets)
-                    }
-                }
-            } header: {
-                Text("Saved Buddies")
-            } footer: {
-                if !buddyStore.buddies.isEmpty {
-                    Text("Tap + to fill the next open slot. Swipe to remove.")
-                        .font(.caption)
-                }
-            }
-
-            // PLAYER SLOTS
             Section("Players (exactly 4)") {
                 ForEach(0..<4, id: \.self) { index in
                     HStack(alignment: .center) {
                         VStack(alignment: .leading) {
                             TextField("Player \(index + 1) name", text: $viewModel.players[index].name)
                             HStack {
-                                Text("HI")
+                                Text("Index")
                                     .foregroundStyle(.secondary)
                                     .font(.caption)
                                 TextField("0.0", value: $viewModel.players[index].handicapIndex, format: .number.precision(.fractionLength(1)))
@@ -255,6 +213,131 @@ private struct PlayerEntryScreen: View {
             }
         }
         .navigationTitle("Players")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showBuddies = true
+                } label: {
+                    Label("Buddies", systemImage: "person.2.fill")
+                }
+                .sheet(isPresented: $showBuddies) {
+                    BuddiesSheet(
+                        buddyStore: buddyStore,
+                        onSelect: { buddy in
+                            if let idx = nextEmptyIndex {
+                                viewModel.players[idx].name = buddy.name
+                                viewModel.players[idx].handicapIndex = buddy.handicapIndex
+                            }
+                            if nextEmptyIndex == nil { showBuddies = false }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct BuddiesSheet: View {
+    @ObservedObject var buddyStore: BuddyStore
+    let onSelect: (Buddy) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var pendingBuddy: Buddy? = nil
+    @State private var updatedHIText: String = ""
+    @State private var showHIUpdate = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if buddyStore.buddies.isEmpty {
+                    ContentUnavailableView(
+                        "No Buddies Saved",
+                        systemImage: "person.2",
+                        description: Text("Enter players and tap the bookmark icon to save them here.")
+                    )
+                } else {
+                    List {
+                        ForEach(buddyStore.buddies) { buddy in
+                            Button {
+                                if buddy.needsHIConfirmation {
+                                    pendingBuddy = buddy
+                                    updatedHIText = String(format: "%.1f", buddy.handicapIndex)
+                                } else {
+                                    onSelect(buddy)
+                                }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(buddy.name)
+                                            .foregroundStyle(.primary)
+                                        HStack(spacing: 4) {
+                                            Text(String(format: "Index %.1f", buddy.handicapIndex))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            if buddy.needsHIConfirmation {
+                                                Image(systemName: "exclamationmark.circle.fill")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.orange)
+                                            }
+                                        }
+                                    }
+                                    Spacer()
+                                    Image(systemName: "plus.circle")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                        .onDelete { buddyStore.remove(at: $0) }
+                    }
+                }
+            }
+            .navigationTitle("Saved Buddies")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .alert(
+                pendingBuddy.map { "Still Index \(String(format: "%.1f", $0.handicapIndex)), \($0.name)?" } ?? "",
+                isPresented: Binding(get: { pendingBuddy != nil && !showHIUpdate },
+                                     set: { if !$0 { pendingBuddy = nil } })
+            ) {
+                Button("Yes, same HI") {
+                    if let b = pendingBuddy {
+                        buddyStore.confirmHI(id: b.id)
+                        onSelect(b)
+                    }
+                    pendingBuddy = nil
+                }
+                Button("Update HI") { showHIUpdate = true }
+                Button("Cancel", role: .cancel) { pendingBuddy = nil }
+            } message: {
+                Text("It's been a while — confirm or update before adding to this round.")
+            }
+            .alert(
+                "Update Index for \(pendingBuddy?.name ?? "")",
+                isPresented: $showHIUpdate
+            ) {
+                TextField("New Index (e.g. 8.4)", text: $updatedHIText)
+                    .keyboardType(.decimalPad)
+                Button("Save & Add") {
+                    if let b = pendingBuddy, let newHI = Double(updatedHIText) {
+                        buddyStore.updateHI(id: b.id, to: newHI)
+                        if let updated = buddyStore.buddies.first(where: { $0.id == b.id }) {
+                            onSelect(updated)
+                        }
+                    }
+                    pendingBuddy = nil
+                    showHIUpdate = false
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingBuddy = nil
+                    showHIUpdate = false
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -272,6 +355,8 @@ private final class ScanViewModel: ObservableObject {
     @Published var ratingText: String = ""
     @Published var isProcessing: Bool = false
     @Published var showCamera: Bool = false
+    @Published var photoPickerItem: PhotosPickerItem? = nil
+    @Published var mergePhotoItem: PhotosPickerItem? = nil
 
     private let scanner = ScorecardScanner()
     private let parser = ScorecardParser()
@@ -301,10 +386,35 @@ private final class ScanViewModel: ObservableObject {
         let lines = await scanner.recognizeText(in: image)
         let parsed = parser.parse(lines)
         scannedData = parsed
-        slopeText = parsed.slope.map { String($0) } ?? ""
-        ratingText = parsed.courseRating.map { String(format: "%.1f", $0) } ?? ""
+        applyRatingForCurrentTee(from: parsed)
         isProcessing = false
         step = .reviewing
+    }
+
+    func mergeImage(_ image: UIImage) async {
+        isProcessing = true
+        let lines = await scanner.recognizeText(in: image)
+        let parsed = parser.parse(lines)
+        scannedData.merge(parsed)
+        applyRatingForCurrentTee(from: scannedData)
+        isProcessing = false
+    }
+
+    func updateRatingForTee(_ newTee: String) {
+        if let tr = scannedData.teeRatings[newTee] {
+            slopeText = String(tr.slope)
+            ratingText = String(format: "%.1f", tr.rating)
+        }
+    }
+
+    private func applyRatingForCurrentTee(from data: ScannedCourseData) {
+        if let tr = data.teeRatings[teeColor] {
+            slopeText = String(tr.slope)
+            ratingText = String(format: "%.1f", tr.rating)
+        } else {
+            slopeText = data.slope.map { String($0) } ?? ""
+            ratingText = data.courseRating.map { String(format: "%.1f", $0) } ?? ""
+        }
     }
 
     func setPar(hole: Int, par: Int) {
@@ -386,10 +496,29 @@ private struct CourseSetupScreen: View {
         }
         .navigationTitle("Course")
         .sheet(isPresented: $scanVM.showCamera) {
-            let source: UIImagePickerController.SourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
-            ImagePicker(sourceType: source) { image in
+            ImagePicker(sourceType: .camera) { image in
                 scanVM.showCamera = false
                 Task { await scanVM.processImage(image) }
+            }
+        }
+        .onChange(of: scanVM.photoPickerItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await scanVM.processImage(image)
+                }
+                scanVM.photoPickerItem = nil
+            }
+        }
+        .onChange(of: scanVM.mergePhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await scanVM.mergeImage(image)
+                }
+                scanVM.mergePhotoItem = nil
             }
         }
         .overlay {
@@ -445,17 +574,27 @@ private struct CourseSetupScreen: View {
             }
 
             Section {
-                Button {
-                    scanVM.showCamera = true
-                } label: {
-                    Label("Scan Scorecard", systemImage: "camera.fill")
+                PhotosPicker(selection: $scanVM.photoPickerItem, matching: .images) {
+                    Label("Scan from Photos", systemImage: "photo.on.rectangle")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .listRowBackground(Color.clear)
-                .listRowInsets(.init(top: 8, leading: 0, bottom: 8, trailing: 0))
+                .listRowInsets(.init(top: 8, leading: 0, bottom: 4, trailing: 0))
+
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button {
+                        scanVM.showCamera = true
+                    } label: {
+                        Label("Use Camera", systemImage: "camera.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(.init(top: 4, leading: 0, bottom: 8, trailing: 0))
+                }
             } footer: {
-                Text("Photograph the front and back of the scorecard. Works best in good light with the card held flat.")
+                Text("Select a photo of the scorecard from your library, or use the camera on a real device.")
                     .font(.caption)
             }
 
@@ -519,7 +658,15 @@ private struct CourseSetupScreen: View {
             }
 
             Section {
-                Button("Rescan") {
+                PhotosPicker(selection: $scanVM.mergePhotoItem, matching: .images) {
+                    Label("Scan Another Page", systemImage: "doc.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
+
+                Button("Rescan (Start Over)") {
                     scanVM.step = .initial
                 }
                 .foregroundStyle(.orange)
@@ -528,7 +675,18 @@ private struct CourseSetupScreen: View {
                     TeamAssignmentScreen(viewModel: viewModel, onFinish: onFinish)
                 }
                 .disabled(!scanVM.isValid)
+            } footer: {
+                let missingPar = scanVM.scannedData.holes.filter { $0.par == nil }.count
+                let missingSI = scanVM.scannedData.holes.filter { $0.strokeIndex == nil }.count
+                if missingPar > 0 || missingSI > 0 {
+                    Text("Missing data on \(max(missingPar, missingSI)) hole(s). Scan the front of the card to import par and stroke index.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
+        }
+        .onChange(of: scanVM.teeColor) { _, newTee in
+            scanVM.updateRatingForTee(newTee)
         }
         .onChange(of: scanVM.step) { _, _ in syncToViewModel() }
         .onAppear { syncToViewModel() }
@@ -604,7 +762,7 @@ private struct TeamAssignmentScreen: View {
 
     var body: some View {
         List {
-            Section("Auto Pairing (Low HI + High HI)") {
+            Section("Auto Pairing (Low Index + High Index)") {
                 ForEach(viewModel.pairings) { pairing in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(pairing.team == .teamA ? "Team A" : "Team B")
@@ -613,7 +771,7 @@ private struct TeamAssignmentScreen: View {
                             HStack {
                                 Text(player.name)
                                 Spacer()
-                                Text(String(format: "HI %.1f", player.handicapIndex))
+                                Text(String(format: "Index %.1f", player.handicapIndex))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -656,7 +814,7 @@ private struct ConfiguredRoundCard: View {
                 HStack {
                     Text(player.name)
                     Spacer()
-                    Text(String(format: "HI %.1f", player.handicapIndex))
+                    Text(String(format: "Index %.1f", player.handicapIndex))
                         .foregroundStyle(.secondary)
                 }
             }

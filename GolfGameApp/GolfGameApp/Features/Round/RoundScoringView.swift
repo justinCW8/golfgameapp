@@ -291,7 +291,7 @@ private struct PlayerScoreRow: View {
                 Text(player.name)
                     .font(.body.weight(.medium))
                 HStack(spacing: 6) {
-                    Text("HI \(flooredHandicap)")
+                    Text("Index \(flooredHandicap)")
                         .foregroundStyle(.secondary)
                     if strokeCount > 0 {
                         Text("+\(strokeCount)")
@@ -451,7 +451,7 @@ private struct RoundScorecardView: View {
         return HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(player.name).font(.caption.weight(.medium))
-                Text("HI \(hi)").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text("Index \(hi)").font(.system(size: 9)).foregroundStyle(.secondary)
             }
             .frame(width: nameW, alignment: .leading)
             .padding(.leading, 8)

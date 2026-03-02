@@ -222,7 +222,7 @@ private struct EventPlayersScreen: View {
                     VStack(alignment: .leading, spacing: 6) {
                         TextField("Player name", text: $player.name)
                         HStack {
-                            Text("HI")
+                            Text("Index")
                             Spacer()
                             TextField("0.0", value: $player.handicapIndex, format: .number.precision(.fractionLength(1)))
                                 .keyboardType(.decimalPad)
@@ -271,7 +271,7 @@ private struct EventGroupAssignmentScreen: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(player.name)
-                            Text(String(format: "HI %.1f", player.handicapIndex))
+                            Text(String(format: "Index %.1f", player.handicapIndex))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -416,7 +416,7 @@ private struct EventGroupScoringView: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(player.name)
-                                Text(String(format: "HI %.1f", player.handicapIndex))
+                                Text(String(format: "Index %.1f", player.handicapIndex))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

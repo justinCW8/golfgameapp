@@ -55,6 +55,30 @@ struct Buddy: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var name: String
     var handicapIndex: Double
+    var lastConfirmedAt: Date = Date()
+
+    var needsHIConfirmation: Bool {
+        Date().timeIntervalSince(lastConfirmedAt) > 30 * 24 * 3600  // 30 days
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, handicapIndex, lastConfirmedAt
+    }
+
+    init(id: UUID = UUID(), name: String, handicapIndex: Double, lastConfirmedAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.handicapIndex = handicapIndex
+        self.lastConfirmedAt = lastConfirmedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
+        lastConfirmedAt = try c.decodeIfPresent(Date.self, forKey: .lastConfirmedAt) ?? Date(timeIntervalSinceNow: -31 * 24 * 3600)
+    }
 }
 
 @MainActor
@@ -74,6 +98,21 @@ final class BuddyStore: ObservableObject {
     func update(_ buddy: Buddy) {
         if let idx = buddies.firstIndex(where: { $0.id == buddy.id }) {
             buddies[idx] = buddy
+            save()
+        }
+    }
+
+    func confirmHI(id: UUID) {
+        if let idx = buddies.firstIndex(where: { $0.id == id }) {
+            buddies[idx].lastConfirmedAt = Date()
+            save()
+        }
+    }
+
+    func updateHI(id: UUID, to newHI: Double) {
+        if let idx = buddies.firstIndex(where: { $0.id == id }) {
+            buddies[idx].handicapIndex = newHI
+            buddies[idx].lastConfirmedAt = Date()
             save()
         }
     }
