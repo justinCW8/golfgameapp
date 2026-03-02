@@ -97,11 +97,12 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     var matchStatusDisplay: String {
-        guard let output = lastOutput else { return "All square" }
+        let thru = max(0, currentHole - 1)
+        guard let output = lastOutput else { return "All square thru \(thru)" }
         let diff = output.totalTeamA - output.totalTeamB
-        if diff == 0 { return "All square" }
-        if diff > 0 { return "\(teamAName) +\(diff)" }
-        return "\(teamBName) +\(-diff)"
+        if diff == 0 { return "All square thru \(thru)" }
+        if diff > 0 { return "\(teamAName) +\(diff) thru \(thru)" }
+        return "\(teamBName) +\(-diff) thru \(thru)"
     }
 
     var runningUpDownDisplay: String {

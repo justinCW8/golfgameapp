@@ -306,7 +306,16 @@ private struct PlayerScoreRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading) {
-                Text(player.name)
+                HStack(spacing: 6) {
+                    Text(player.name)
+                    if strokeCount > 0 {
+                        Text("+\(strokeCount)")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.18), in: Capsule())
+                    }
+                }
                 Text("HI \(flooredHandicap)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -320,13 +329,6 @@ private struct PlayerScoreRow: View {
                 .frame(maxWidth: 80)
                 .multilineTextAlignment(.trailing)
                 .disabled(readOnly)
-            if strokeCount > 0 {
-                Text("Stroke")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.18), in: Capsule())
-            }
             if proxSelected {
                 Button("PRO ✓", action: onTapProx)
                     .buttonStyle(.borderedProminent)
