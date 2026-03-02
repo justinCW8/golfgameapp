@@ -65,17 +65,22 @@ struct ScorecardParser {
             validRange: 1...18
         )
 
+        // When we only extracted 9 values, detect whether this is the back nine (holes 10–18).
+        // Full 18-value extractions always start at index 0.
+        let holeOffset = parValues.count == 9 ? detectHoleOffset(from: normalized) : 0
+
         if parValues.count >= 9 {
             for (idx, val) in parValues.prefix(18).enumerated() {
-                result.holes[idx].par = val
+                result.holes[holeOffset + idx].par = val
             }
         }
 
         if siValues.count >= 9 {
             let values = Array(siValues.prefix(18))
             if isValidSI(values) {
+                let siOffset = values.count == 9 ? holeOffset : 0
                 for (idx, val) in values.enumerated() {
-                    result.holes[idx].strokeIndex = val
+                    result.holes[siOffset + idx].strokeIndex = val
                 }
             }
         }
@@ -99,6 +104,25 @@ struct ScorecardParser {
             if collected.count >= 9 { return Array(collected.prefix(18)) }
         }
         return []
+    }
+
+    /// Returns 0 (front 9, holes 1–9) or 9 (back 9, holes 10–18).
+    /// Looks for a "Hole" / "No." header row; if the first hole number found is ≥ 10, it's back nine.
+    private func detectHoleOffset(from lines: [String]) -> Int {
+        for (i, line) in lines.enumerated() {
+            let lower = line.lowercased()
+            guard lower.contains("hole") || lower.hasPrefix("no") else { continue }
+            var collected: [Int] = []
+            for searchLine in lines[i...].prefix(15) {
+                let nums = extractIntegers(from: searchLine).filter { (1...18).contains($0) }
+                collected.append(contentsOf: nums)
+                if collected.count >= 3 { break }
+            }
+            if let first = collected.first {
+                return first >= 10 ? 9 : 0
+            }
+        }
+        return 0  // default: assume front nine
     }
 
     /// Parse all tee-specific rating/slope pairs from lines like:
@@ -192,7 +216,9 @@ struct ScorecardParser {
 
     private func isValidSI(_ values: [Int]) -> Bool {
         guard values.count == 9 || values.count == 18 else { return false }
-        let expected = values.count == 9 ? Set(1...9) : Set(1...18)
-        return Set(values) == expected
+        // All values must be in 1...18 and all unique.
+        // Front-9 scans have SI values drawn from the full 1...18 range (e.g. 11, 3, 7, 15...),
+        // so we do NOT require the set to equal exactly {1...9} when count == 9.
+        return values.allSatisfy({ (1...18).contains($0) }) && Set(values).count == values.count
     }
 }
