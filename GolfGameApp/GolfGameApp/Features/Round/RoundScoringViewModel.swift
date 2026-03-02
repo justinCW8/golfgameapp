@@ -15,6 +15,7 @@ final class RoundScoringViewModel: ObservableObject {
     @Published var requestReroll = false
 
     @Published var hasScoredCurrentHole = false
+    @Published var isRoundEnded = false
     @Published var lastOutput: SixPointScotchHoleOutput?
     @Published var errorMessage: String?
     @Published var holeResults: [HoleResult] = []
@@ -47,6 +48,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     var canScore: Bool {
+        !isRoundEnded &&
         !requiresTeeTossChoice &&
         allRequiredInputs.count == requiredInputCount &&
         allRequiredInputs.allSatisfy { value in
@@ -90,6 +92,14 @@ final class RoundScoringViewModel: ObservableObject {
         return output.totalTeamA > output.totalTeamB ? teamAName : teamBName
     }
 
+    var matchStatusDisplay: String {
+        guard let output = lastOutput else { return "All square" }
+        let diff = output.totalTeamA - output.totalTeamB
+        if diff == 0 { return "All square" }
+        if diff > 0 { return "\(teamAName) +\(diff)" }
+        return "\(teamBName) +\(-diff)"
+    }
+
     var requiresTeeTossChoice: Bool {
         currentHole == 1 && teeTossFirst == nil
     }
@@ -104,6 +114,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     var canRequestPress: Bool {
+        !isRoundEnded &&
         !requiresTeeTossChoice &&
         trailingTeam != nil &&
         !leaderTeedOff &&
@@ -112,6 +123,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     var canRequestRoll: Bool {
+        !isRoundEnded &&
         !requiresTeeTossChoice &&
         trailingTeam != nil &&
         leaderTeedOff &&
@@ -120,6 +132,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     var canRequestReroll: Bool {
+        !isRoundEnded &&
         !requiresTeeTossChoice &&
         leadingTeam != nil &&
         requestRoll &&
@@ -159,6 +172,11 @@ final class RoundScoringViewModel: ObservableObject {
         guard let gross = Int(raw) else { return "-" }
         let strokes = strokeCount(for: players[index], onHoleStrokeIndex: currentHoleStrokeIndex)
         return String(gross - strokes)
+    }
+
+    func flooredHandicapDisplay(forPlayerAt index: Int) -> Int {
+        guard players.indices.contains(index) else { return 0 }
+        return max(0, Int(players[index].handicapIndex.rounded(.down)))
     }
 
     func strokesDisplay(forPlayerAt index: Int) -> Int {
@@ -203,6 +221,10 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func scoreCurrentHole() {
+        guard !isRoundEnded else {
+            errorMessage = "Round has ended. Start a new round to continue scoring."
+            return
+        }
         guard currentHole <= 18 else {
             errorMessage = "Round is complete."
             return
@@ -310,6 +332,10 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func goToNextHole() {
+        guard !isRoundEnded else {
+            errorMessage = "Round has ended. Start a new round to continue scoring."
+            return
+        }
         guard hasScoredCurrentHole else {
             errorMessage = "Score the current hole first."
             return
@@ -331,6 +357,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func pressTapped() {
+        guard !isRoundEnded else { return }
         guard !requiresTeeTossChoice else { return }
         if requestPress {
             requestPress = false
@@ -341,6 +368,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func rollTapped() {
+        guard !isRoundEnded else { return }
         guard !requiresTeeTossChoice else { return }
         if requestRoll {
             requestRoll = false
@@ -352,6 +380,7 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func rerollTapped() {
+        guard !isRoundEnded else { return }
         guard !requiresTeeTossChoice else { return }
         if requestReroll {
             requestReroll = false
@@ -362,19 +391,33 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     func leaderTeedOffTapped() {
+        guard !isRoundEnded else { return }
         guard !requiresTeeTossChoice else { return }
         leaderTeedOff = true
     }
 
     func trailerTeedOffTapped() {
+        guard !isRoundEnded else { return }
         guard !requiresTeeTossChoice else { return }
         trailerTeedOff = true
     }
 
     func setTeeTossFirst(_ team: TeamSide) {
+        guard !isRoundEnded else { return }
         teeTossFirst = team
         errorMessage = nil
         persistRoundState()
+    }
+
+    func endRound() {
+        guard !isRoundEnded else { return }
+        isRoundEnded = true
+        errorMessage = nil
+        persistRoundState()
+    }
+
+    func endRoundAndClearSession() {
+        sessionStore.clearActiveRoundSession()
     }
 
     private func parseGrossScores(_ raw: [String]) throws -> [Int] {
@@ -470,6 +513,7 @@ final class RoundScoringViewModel: ObservableObject {
     private func persistRoundState() {
         sessionStore.updateActiveRoundState(
             teeTossFirst: teeTossFirst,
+            isRoundEnded: isRoundEnded,
             currentHole: currentHole,
             isCurrentHoleScored: hasScoredCurrentHole,
             scoredHoleInputs: scoredHoleInputs,
@@ -500,6 +544,7 @@ final class RoundScoringViewModel: ObservableObject {
         lastOutput = rebuiltOutputs.last
         currentHole = min(max(session.currentHole, 1), 18)
         teeTossFirst = session.teeTossFirst
+        isRoundEnded = session.isRoundEnded
         hasScoredCurrentHole = session.isCurrentHoleScored
         holeResults = session.holeResults.sorted { $0.holeNumber < $1.holeNumber }
         strokesByPlayerByHole = session.strokesByPlayerByHole.sorted { $0.holeNumber < $1.holeNumber }

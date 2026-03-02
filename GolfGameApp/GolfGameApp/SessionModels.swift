@@ -155,6 +155,7 @@ struct RoundSession: Codable {
     var id: UUID
     var setup: RoundSetupSession
     var teeTossFirst: TeamSide?
+    var isRoundEnded: Bool
     var currentHole: Int
     var isCurrentHoleScored: Bool
     var scoredHoleInputs: [SixPointScotchHoleInput]
@@ -166,6 +167,7 @@ struct RoundSession: Codable {
         case id
         case setup
         case teeTossFirst
+        case isRoundEnded
         case currentHole
         case isCurrentHoleScored
         case scoredHoleInputs
@@ -178,6 +180,7 @@ struct RoundSession: Codable {
         id: UUID,
         setup: RoundSetupSession,
         teeTossFirst: TeamSide?,
+        isRoundEnded: Bool,
         currentHole: Int,
         isCurrentHoleScored: Bool,
         scoredHoleInputs: [SixPointScotchHoleInput],
@@ -188,6 +191,7 @@ struct RoundSession: Codable {
         self.id = id
         self.setup = setup
         self.teeTossFirst = teeTossFirst
+        self.isRoundEnded = isRoundEnded
         self.currentHole = currentHole
         self.isCurrentHoleScored = isCurrentHoleScored
         self.scoredHoleInputs = scoredHoleInputs
@@ -201,6 +205,7 @@ struct RoundSession: Codable {
         id = try container.decode(UUID.self, forKey: .id)
         setup = try container.decode(RoundSetupSession.self, forKey: .setup)
         teeTossFirst = try container.decodeIfPresent(TeamSide.self, forKey: .teeTossFirst)
+        isRoundEnded = try container.decodeIfPresent(Bool.self, forKey: .isRoundEnded) ?? false
         currentHole = try container.decode(Int.self, forKey: .currentHole)
         isCurrentHoleScored = try container.decode(Bool.self, forKey: .isCurrentHoleScored)
         scoredHoleInputs = try container.decode([SixPointScotchHoleInput].self, forKey: .scoredHoleInputs)
@@ -263,6 +268,7 @@ final class AppSessionStore: ObservableObject {
             id: UUID(),
             setup: setup,
             teeTossFirst: nil,
+            isRoundEnded: false,
             currentHole: 1,
             isCurrentHoleScored: false,
             scoredHoleInputs: [],
@@ -275,6 +281,7 @@ final class AppSessionStore: ObservableObject {
 
     func updateActiveRoundState(
         teeTossFirst: TeamSide?,
+        isRoundEnded: Bool,
         currentHole: Int,
         isCurrentHoleScored: Bool,
         scoredHoleInputs: [SixPointScotchHoleInput],
@@ -283,6 +290,7 @@ final class AppSessionStore: ObservableObject {
     ) {
         guard var active = activeRoundSession else { return }
         active.teeTossFirst = teeTossFirst
+        active.isRoundEnded = isRoundEnded
         active.currentHole = currentHole
         active.isCurrentHoleScored = isCurrentHoleScored
         active.scoredHoleInputs = scoredHoleInputs
@@ -319,6 +327,11 @@ final class AppSessionStore: ObservableObject {
 
     func updateActiveEventSession(_ session: EventSession) {
         activeEventSession = session
+        persist()
+    }
+
+    func clearActiveRoundSession() {
+        activeRoundSession = nil
         persist()
     }
 
