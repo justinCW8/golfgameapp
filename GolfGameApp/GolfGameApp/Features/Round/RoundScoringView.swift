@@ -155,6 +155,11 @@ struct RoundScoringView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+
+                        Button("Edit Scores") {
+                            viewModel.rescoreCurrentHole()
+                        }
+                        .foregroundStyle(.orange)
                     }
 
                     Button("Next Hole") {

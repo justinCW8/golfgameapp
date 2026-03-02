@@ -417,6 +417,33 @@ final class RoundScoringViewModel: ObservableObject {
         requestReroll = true
     }
 
+    /// Undo the score for the current hole so the user can correct and re-score.
+    /// Gross inputs are kept intact so only the wrong value needs changing.
+    func rescoreCurrentHole() {
+        guard hasScoredCurrentHole, !scoredHoleInputs.isEmpty else { return }
+
+        scoredHoleInputs.removeLast()
+        holeHistory.removeLast()
+        holeResults.removeAll { $0.holeNumber == currentHole }
+        strokesByPlayerByHole.removeAll { $0.holeNumber == currentHole }
+
+        // Replay remaining inputs through a fresh engine to restore correct state
+        var rebuilt = SixPointScotchEngine()
+        var rebuiltOutputs: [SixPointScotchHoleOutput] = []
+        for input in scoredHoleInputs {
+            if let output = try? rebuilt.scoreHole(input) {
+                rebuiltOutputs.append(output)
+            }
+        }
+        engine = rebuilt
+        holeHistory = rebuiltOutputs
+        lastOutput = rebuiltOutputs.last
+
+        hasScoredCurrentHole = false
+        errorMessage = nil
+        persistRoundState()
+    }
+
     func endRound() {
         guard !isRoundEnded else { return }
         isRoundEnded = true
