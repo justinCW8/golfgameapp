@@ -202,6 +202,14 @@ private struct PlayerEntryScreen: View {
                         }
                     }
                     .padding(.vertical, 2)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            viewModel.players[index].name = ""
+                            viewModel.players[index].handicapIndex = 0.0
+                        } label: {
+                            Label("Clear", systemImage: "xmark")
+                        }
+                    }
                 }
             }
 
@@ -358,8 +366,16 @@ private final class ScanViewModel: ObservableObject {
     @Published var photoPickerItem: PhotosPickerItem? = nil
     @Published var mergePhotoItem: PhotosPickerItem? = nil
 
+    // Course search
+    @Published var searchQuery: String = ""
+    @Published var apiResults: [CourseAPIResult] = []
+    @Published var isSearching: Bool = false
+    private var searchTask: Task<Void, Never>? = nil
+    private var apiHolesByTee: [String: [ScannedHole]] = [:]
+
     private let scanner = ScorecardScanner()
     private let parser = ScorecardParser()
+    private let courseSearch = CourseSearchService()
 
     static let teeOptions = ["Blue", "White", "Gold", "Red"]
 
@@ -382,6 +398,7 @@ private final class ScanViewModel: ObservableObject {
     var courseRating: Double? { Double(ratingText) }
 
     func processImage(_ image: UIImage) async {
+        apiHolesByTee = [:]
         isProcessing = true
         let lines = await scanner.recognizeText(in: image)
         let parsed = parser.parse(lines)
@@ -405,6 +422,47 @@ private final class ScanViewModel: ObservableObject {
             slopeText = String(tr.slope)
             ratingText = String(format: "%.1f", tr.rating)
         }
+        // When switching tees on an API-loaded course, update hole data too
+        if let holes = apiHolesByTee[newTee] {
+            scannedData.holes = holes
+        }
+    }
+
+    func triggerSearch() {
+        searchTask?.cancel()
+        let query = searchQuery.trimmingCharacters(in: .whitespaces)
+        guard query.count >= 3 else {
+            apiResults = []
+            isSearching = false
+            return
+        }
+        isSearching = true
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 s debounce
+            guard !Task.isCancelled else { return }
+            apiResults = (try? await courseSearch.search(query: query)) ?? []
+            isSearching = false
+        }
+    }
+
+    func applyAPIResult(_ result: CourseAPIResult) {
+        apiHolesByTee = result.holesByTee
+        courseName = result.displayName
+        let preferredTees = ["Blue", "White", "Gold", "Red"]
+        let defaultTee = preferredTees.first { result.teeRatings[$0] != nil }
+            ?? result.teeRatings.keys.sorted().first
+            ?? "White"
+        teeColor = defaultTee
+        scannedData = ScannedCourseData(
+            holes: result.holes(forTee: defaultTee),
+            slope: result.teeRatings[defaultTee]?.slope,
+            courseRating: result.teeRatings[defaultTee]?.rating,
+            teeRatings: result.teeRatings
+        )
+        applyRatingForCurrentTee(from: scannedData)
+        apiResults = []
+        searchQuery = ""
+        step = .reviewing
     }
 
     private func applyRatingForCurrentTee(from data: ScannedCourseData) {
@@ -434,6 +492,7 @@ private final class ScanViewModel: ObservableObject {
     }
 
     func applyDemoCourse() {
+        apiHolesByTee = [:]
         courseName = DemoCourseFactory.name
         teeColor = "White"
         slopeText = ""
@@ -544,12 +603,49 @@ private struct CourseSetupScreen: View {
 
     private var initialView: some View {
         Form {
+            // Search
+            Section {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search course name…", text: $scanVM.searchQuery)
+                        .autocorrectionDisabled()
+                        .onChange(of: scanVM.searchQuery) { _, _ in scanVM.triggerSearch() }
+                    if scanVM.isSearching {
+                        ProgressView().scaleEffect(0.75)
+                    } else if !scanVM.searchQuery.isEmpty {
+                        Button { scanVM.searchQuery = ""; scanVM.apiResults = [] } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } footer: {
+                Text("Type at least 3 characters to search ~30,000 courses.")
+                    .font(.caption)
+            }
+
+            // Search results
+            if !scanVM.apiResults.isEmpty {
+                Section("Results") {
+                    ForEach(scanVM.apiResults) { result in
+                        Button { scanVM.applyAPIResult(result) } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(result.displayName).foregroundStyle(.primary)
+                                Text(result.location)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+            }
+
+            // Saved courses
             if !courseStore.courses.isEmpty {
                 Section {
                     ForEach(courseStore.courses) { saved in
-                        Button {
-                            applysaved(saved)
-                        } label: {
+                        Button { applysaved(saved) } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(saved.name).foregroundStyle(.primary)
@@ -568,24 +664,22 @@ private struct CourseSetupScreen: View {
                 } header: {
                     Text("Saved Courses")
                 } footer: {
-                    Text("Tap to use · Swipe to delete")
-                        .font(.caption)
+                    Text("Tap to use · Swipe to delete").font(.caption)
                 }
             }
 
+            // Scan fallback
             Section {
                 PhotosPicker(selection: $scanVM.photoPickerItem, matching: .images) {
-                    Label("Scan from Photos", systemImage: "photo.on.rectangle")
+                    Label("Scan Scorecard from Photos", systemImage: "photo.on.rectangle")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .listRowBackground(Color.clear)
                 .listRowInsets(.init(top: 8, leading: 0, bottom: 4, trailing: 0))
 
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button {
-                        scanVM.showCamera = true
-                    } label: {
+                    Button { scanVM.showCamera = true } label: {
                         Label("Use Camera", systemImage: "camera.fill")
                             .frame(maxWidth: .infinity)
                     }
@@ -593,16 +687,15 @@ private struct CourseSetupScreen: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(.init(top: 4, leading: 0, bottom: 8, trailing: 0))
                 }
+            } header: {
+                Text("Scan Scorecard")
             } footer: {
-                Text("Select a photo of the scorecard from your library, or use the camera on a real device.")
-                    .font(.caption)
+                Text("Use when the course isn't found in search.").font(.caption)
             }
 
             Section {
-                Button("Use Demo Course (Dev)") {
-                    scanVM.applyDemoCourse()
-                }
-                .foregroundStyle(.secondary)
+                Button("Use Demo Course (Dev)") { scanVM.applyDemoCourse() }
+                    .foregroundStyle(.secondary)
             }
         }
     }
