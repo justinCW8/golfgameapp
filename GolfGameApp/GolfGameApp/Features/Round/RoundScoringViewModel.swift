@@ -38,6 +38,14 @@ final class RoundScoringViewModel: ObservableObject {
         players.map(\.name)
     }
 
+    var teamAName: String {
+        teamDisplayName(for: .teamA)
+    }
+
+    var teamBName: String {
+        teamDisplayName(for: .teamB)
+    }
+
     var canScore: Bool {
         !requiresTeeTossChoice &&
         allRequiredInputs.count == requiredInputCount &&
@@ -65,6 +73,21 @@ final class RoundScoringViewModel: ObservableObject {
 
     var pressesRemainingThisNine: Int {
         max(0, 2 - currentNineLedger.usedPresses)
+    }
+
+    var nineStatusText: String {
+        statusText(teamAPoints: currentNineLedger.teamAPoints, teamBPoints: currentNineLedger.teamBPoints)
+    }
+
+    var overallStatusText: String {
+        guard let output = lastOutput else { return "E" }
+        return statusText(teamAPoints: output.totalTeamA, teamBPoints: output.totalTeamB)
+    }
+
+    var overallLeadingTeamName: String? {
+        guard let output = lastOutput else { return nil }
+        if output.totalTeamA == output.totalTeamB { return nil }
+        return output.totalTeamA > output.totalTeamB ? teamAName : teamBName
     }
 
     var requiresTeeTossChoice: Bool {
@@ -136,6 +159,47 @@ final class RoundScoringViewModel: ObservableObject {
         guard let gross = Int(raw) else { return "-" }
         let strokes = strokeCount(for: players[index], onHoleStrokeIndex: currentHoleStrokeIndex)
         return String(gross - strokes)
+    }
+
+    func strokesDisplay(forPlayerAt index: Int) -> Int {
+        guard players.indices.contains(index) else { return 0 }
+        return strokeCount(for: players[index], onHoleStrokeIndex: currentHoleStrokeIndex)
+    }
+
+    func grossNetStrokeDisplay(forPlayerAt index: Int) -> String {
+        let strokes = strokesDisplay(forPlayerAt: index)
+        let grossText = playerGrossInputs.indices.contains(index)
+            ? playerGrossInputs[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        guard let gross = Int(grossText) else {
+            return "Gross - | Net - | +\(strokes)"
+        }
+        let net = gross - strokes
+        return "Gross \(gross) | Net \(net) | +\(strokes)"
+    }
+
+    func teamHoleSummaryDisplay(for team: TeamSide) -> String {
+        let ids = teamPlayerIDs(for: team)
+        guard ids.count == 2 else { return "\(teamDisplayName(for: team)): - for -" }
+        let byPlayerID = Dictionary(uniqueKeysWithValues: players.enumerated().map { ($1.id, $0) })
+        var grossValues: [Int] = []
+        var netValues: [Int] = []
+        for id in ids {
+            guard let playerIndex = byPlayerID[id], players.indices.contains(playerIndex) else {
+                return "\(teamDisplayName(for: team)): - for -"
+            }
+            let raw = playerGrossInputs[playerIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let gross = Int(raw) else {
+                return "\(teamDisplayName(for: team)): - for -"
+            }
+            let strokes = strokeCount(for: players[playerIndex], onHoleStrokeIndex: currentHoleStrokeIndex)
+            grossValues.append(gross)
+            netValues.append(gross - strokes)
+        }
+        guard let grossLow = grossValues.min(), let netLow = netValues.min() else {
+            return "\(teamDisplayName(for: team)): - for -"
+        }
+        return "\(teamDisplayName(for: team)): \(grossLow) for \(netLow)"
     }
 
     func scoreCurrentHole() {
@@ -334,6 +398,14 @@ final class RoundScoringViewModel: ObservableObject {
         sessionStore.activeRoundSession?.setup.holes.first(where: { $0.number == holeNumber })
     }
 
+    func teamDisplayName(for team: TeamSide) -> String {
+        guard let pairing = sessionStore.activeRoundSession?.setup.pairings.first(where: { $0.team == team }) else {
+            return team == .teamA ? "Team A" : "Team B"
+        }
+        let names = pairing.players.map(\.name).filter { !$0.isEmpty }
+        return names.isEmpty ? (team == .teamA ? "Team A" : "Team B") : names.joined(separator: " / ")
+    }
+
     private func teamPlayerIDs(for team: TeamSide) -> [String] {
         sessionStore.activeRoundSession?.setup.pairings.first(where: { $0.team == team })?.players.map(\.id) ?? []
     }
@@ -452,6 +524,11 @@ final class RoundScoringViewModel: ObservableObject {
             }
         }
         return totals
+    }
+
+    private func statusText(teamAPoints: Int, teamBPoints: Int) -> String {
+        let margin = abs(teamAPoints - teamBPoints)
+        return margin == 0 ? "E" : "+\(margin)"
     }
 }
 

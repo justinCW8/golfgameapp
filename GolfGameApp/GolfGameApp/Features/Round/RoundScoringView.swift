@@ -11,22 +11,17 @@ struct RoundScoringView: View {
         Form {
             Section("Tee Box") {
                 Text("Hole \(viewModel.currentHole) • Par \(viewModel.currentHolePar) • SI \(viewModel.currentHoleStrokeIndex)")
+                Text("Status: \(viewModel.nineStatusText)")
+                    .font(.headline)
                 if let teesFirst = viewModel.teesFirstTeam {
-                    Text("Tee order: \(teamTitle(teesFirst)) tees first")
+                    Text("Tee order: \(teamName(teesFirst)) tees first")
                         .foregroundStyle(.secondary)
                 } else {
                     Text("Tee order: Set tee toss to start round")
                         .foregroundStyle(.secondary)
                 }
-                if let trailing = viewModel.trailingTeam {
-                    Text("Trailing: \(teamTitle(trailing))")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Teams are tied on this nine")
-                        .foregroundStyle(.secondary)
-                }
-                if let leading = viewModel.leadingTeam {
-                    Text("Leading: \(teamTitle(leading))")
+                if let leading = viewModel.leadingTeam, let trailing = viewModel.trailingTeam {
+                    Text("Lead: \(teamName(leading)) over \(teamName(trailing))")
                         .foregroundStyle(.secondary)
                 }
 
@@ -34,12 +29,12 @@ struct RoundScoringView: View {
                     Text("Select tee toss before scoring Hole 1")
                         .foregroundStyle(.secondary)
                     HStack {
-                        Button("Team A tees first") {
+                        Button("\(viewModel.teamAName) tees first") {
                             viewModel.setTeeTossFirst(.teamA)
                         }
                         .buttonStyle(.borderedProminent)
 
-                        Button("Team B tees first") {
+                        Button("\(viewModel.teamBName) tees first") {
                             viewModel.setTeeTossFirst(.teamB)
                         }
                         .buttonStyle(.bordered)
@@ -49,8 +44,8 @@ struct RoundScoringView: View {
                 HStack {
                     Button(
                         viewModel.leaderTeedOff
-                        ? "\(teamTitle(viewModel.teesFirstTeam ?? .teamA)) Teed Off ✓"
-                        : "\(teamTitle(viewModel.teesFirstTeam ?? .teamA)) Teed Off"
+                        ? "\(teamName(viewModel.teesFirstTeam ?? .teamA)) Teed Off ✓"
+                        : "\(teamName(viewModel.teesFirstTeam ?? .teamA)) Teed Off"
                     ) {
                         viewModel.leaderTeedOffTapped()
                     }
@@ -62,8 +57,8 @@ struct RoundScoringView: View {
 
                     Button(
                         viewModel.trailerTeedOff
-                        ? "\(teamTitle(viewModel.teesSecondTeam ?? .teamB)) Teed Off ✓"
-                        : "\(teamTitle(viewModel.teesSecondTeam ?? .teamB)) Teed Off"
+                        ? "\(teamName(viewModel.teesSecondTeam ?? .teamB)) Teed Off ✓"
+                        : "\(teamName(viewModel.teesSecondTeam ?? .teamB)) Teed Off"
                     ) {
                         viewModel.trailerTeedOffTapped()
                     }
@@ -106,11 +101,16 @@ struct RoundScoringView: View {
                     PlayerScoreRow(
                         player: player,
                         gross: grossBinding(at: index),
-                        netText: viewModel.netDisplay(forPlayerAt: index),
+                        grossNetStrokeText: viewModel.grossNetStrokeDisplay(forPlayerAt: index),
+                        strokeCount: viewModel.strokesDisplay(forPlayerAt: index),
                         proxSelected: selectedProxWinner(for: index) == viewModel.proxWinner,
                         onTapProx: { viewModel.proxWinner = selectedProxWinner(for: index) }
                     )
                 }
+                Text(viewModel.teamHoleSummaryDisplay(for: .teamA))
+                    .font(.subheadline)
+                Text(viewModel.teamHoleSummaryDisplay(for: .teamB))
+                    .font(.subheadline)
                 if viewModel.proxWinner == .none {
                     Button("None / No GIR ✓") {
                         viewModel.proxWinner = .none
@@ -133,15 +133,27 @@ struct RoundScoringView: View {
 
             if let output = viewModel.lastOutput {
                 Section("Hole Results (Hole \(output.holeNumber))") {
-                    Text("Raw Team A / Team B: \(output.rawTeamAPoints) / \(output.rawTeamBPoints)")
+                    Text("Raw \(viewModel.teamAName) / \(viewModel.teamBName): \(output.rawTeamAPoints) / \(output.rawTeamBPoints)")
                     Text("Multiplier: x\(output.multiplier)")
-                    Text("Multiplied Team A / Team B: \(output.multipliedTeamAPoints) / \(output.multipliedTeamBPoints)")
+                    Text("Multiplied \(viewModel.teamAName) / \(viewModel.teamBName): \(output.multipliedTeamAPoints) / \(output.multipliedTeamBPoints)")
                 }
 
                 Section("Running Totals") {
-                    Text("Front Nine A/B: \(output.frontNineTeamA) / \(output.frontNineTeamB)")
-                    Text("Back Nine A/B: \(output.backNineTeamA) / \(output.backNineTeamB)")
-                    Text("Overall A/B: \(output.totalTeamA) / \(output.totalTeamB)")
+                    Text("Status: \(viewModel.overallStatusText)")
+                        .font(.headline)
+                    if let leading = viewModel.overallLeadingTeamName {
+                        Text("Leader: \(leading)")
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Front Nine \(viewModel.teamAName) / \(viewModel.teamBName): \(output.frontNineTeamA) / \(output.frontNineTeamB)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("Back Nine \(viewModel.teamAName) / \(viewModel.teamBName): \(output.backNineTeamA) / \(output.backNineTeamB)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("Overall \(viewModel.teamAName) / \(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 if !viewModel.latestAuditLines.isEmpty {
@@ -189,7 +201,7 @@ struct RoundScoringView: View {
     private var roundSummarySection: some View {
         Section("Round Summary") {
             if let output = viewModel.lastOutput {
-                Text("Scotch Total Team A/B: \(output.totalTeamA) / \(output.totalTeamB)")
+                Text("Scotch Total \(viewModel.teamAName) / \(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
             }
             ForEach(viewModel.players) { player in
                 let gross = viewModel.totalGrossByPlayerID[player.id, default: 0]
@@ -212,8 +224,8 @@ struct RoundScoringView: View {
         )
     }
 
-    private func teamTitle(_ team: TeamSide) -> String {
-        team == .teamA ? "Team A" : "Team B"
+    private func teamName(_ team: TeamSide) -> String {
+        viewModel.teamDisplayName(for: team)
     }
 
     private func selectedProxWinner(for index: Int) -> ProxWinner {
@@ -230,7 +242,8 @@ struct RoundScoringView: View {
 private struct PlayerScoreRow: View {
     let player: PlayerSnapshot
     @Binding var gross: String
-    let netText: String
+    let grossNetStrokeText: String
+    let strokeCount: Int
     let proxSelected: Bool
     let onTapProx: () -> Void
 
@@ -241,15 +254,22 @@ private struct PlayerScoreRow: View {
                 Text("HI \(player.handicapIndex, specifier: "%.1f")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text(grossNetStrokeText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             TextField("Gross", text: $gross)
                 .keyboardType(.numberPad)
                 .frame(maxWidth: 80)
                 .multilineTextAlignment(.trailing)
-            Text("Net \(netText)")
-                .frame(width: 80, alignment: .trailing)
-                .foregroundStyle(.secondary)
+            if strokeCount > 0 {
+                Text("+\(strokeCount)")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.green.opacity(0.18), in: Capsule())
+            }
             if proxSelected {
                 Button("PRO ✓", action: onTapProx)
                     .buttonStyle(.borderedProminent)
