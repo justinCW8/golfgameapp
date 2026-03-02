@@ -47,6 +47,10 @@ final class RoundScoringViewModel: ObservableObject {
         teamDisplayName(for: .teamB)
     }
 
+    var teeBoxName: String {
+        sessionStore.activeRoundSession?.setup.teeBoxName ?? "White"
+    }
+
     var canScore: Bool {
         !isRoundEnded &&
         !requiresTeeTossChoice &&
@@ -98,6 +102,25 @@ final class RoundScoringViewModel: ObservableObject {
         if diff == 0 { return "All square" }
         if diff > 0 { return "\(teamAName) +\(diff)" }
         return "\(teamBName) +\(-diff)"
+    }
+
+    var runningUpDownDisplay: String {
+        guard let output = lastOutput else { return "All square" }
+        let diff = output.totalTeamA - output.totalTeamB
+        if diff == 0 { return "All square" }
+        if diff > 0 { return "\(teamAName) up \(diff)" }
+        return "\(teamBName) up \(-diff)"
+    }
+
+    var lastHolePointsWinnerDisplay: String {
+        guard let output = lastOutput else { return "No holes scored" }
+        if output.multipliedTeamAPoints == output.multipliedTeamBPoints {
+            return "Last hole points: Halved"
+        }
+        if output.multipliedTeamAPoints > output.multipliedTeamBPoints {
+            return "Last hole points: \(teamAName) +\(output.multipliedTeamAPoints)"
+        }
+        return "Last hole points: \(teamBName) +\(output.multipliedTeamBPoints)"
     }
 
     var requiresTeeTossChoice: Bool {
@@ -190,10 +213,10 @@ final class RoundScoringViewModel: ObservableObject {
             ? playerGrossInputs[index].trimmingCharacters(in: .whitespacesAndNewlines)
             : ""
         guard let gross = Int(grossText) else {
-            return "Gross - | Net - | +\(strokes)"
+            return strokes > 0 ? "Gross - -> Net - (+\(strokes))" : "Gross - -> Net -"
         }
         let net = gross - strokes
-        return "Gross \(gross) | Net \(net) | +\(strokes)"
+        return strokes > 0 ? "Gross \(gross) -> Net \(net) (+\(strokes))" : "Gross \(gross) -> Net \(net)"
     }
 
     func teamHoleSummaryDisplay(for team: TeamSide) -> String {

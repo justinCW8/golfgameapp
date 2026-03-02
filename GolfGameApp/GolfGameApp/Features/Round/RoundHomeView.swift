@@ -56,6 +56,8 @@ private enum RoundRoute: Hashable {
 
 @MainActor
 final class RoundSetupViewModel: ObservableObject {
+    static let teeBoxOptions = ["Blue", "White", "Gold", "Red"]
+
     @Published var eventName = ""
     @Published var eventDate = Date()
     @Published var players = [
@@ -65,6 +67,7 @@ final class RoundSetupViewModel: ObservableObject {
         PlayerDraft()
     ]
     @Published var courseName = DemoCourseFactory.name
+    @Published var teeBoxName = "White"
     @Published var holes = DemoCourseFactory.holes18()
 
     var hasValidEventName: Bool {
@@ -106,6 +109,7 @@ final class RoundSetupViewModel: ObservableObject {
         let setup = RoundSetupSession(
             event: EventDraft(name: eventName, date: eventDate),
             courseName: courseName,
+            teeBoxName: teeBoxName,
             players: snapshots,
             holes: holes,
             pairings: pairings
@@ -184,13 +188,18 @@ private struct CourseStubScreen: View {
     var body: some View {
         List {
             Section("\(viewModel.courseName) (18 Holes)") {
+                Picker("Tee Box", selection: $viewModel.teeBoxName) {
+                    ForEach(RoundSetupViewModel.teeBoxOptions, id: \.self) { option in
+                        Text(option).tag(option)
+                    }
+                }
                 ForEach(viewModel.holes) { hole in
                     HStack {
                         Text("Hole \(hole.number)")
                         Spacer()
                         Text("Par \(hole.par)")
                             .foregroundStyle(.secondary)
-                        Text("SI \(hole.strokeIndex)")
+                        Text("Handicap \(hole.strokeIndex)")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -255,6 +264,8 @@ private struct ConfiguredRoundCard: View {
             Text(round.event.date, style: .date)
                 .foregroundStyle(.secondary)
             Text(round.courseName)
+                .foregroundStyle(.secondary)
+            Text("Tee Box: \(round.teeBoxName)")
                 .foregroundStyle(.secondary)
             Divider()
             Text("Players")

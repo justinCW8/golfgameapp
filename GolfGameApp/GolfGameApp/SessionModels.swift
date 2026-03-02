@@ -73,6 +73,7 @@ struct PlayerSnapshot: Identifiable, Codable, Hashable {
 struct RoundSetupSession: Codable, Hashable {
     var event: EventDraft
     var courseName: String
+    var teeBoxName: String
     var players: [PlayerSnapshot]
     var holes: [CourseHoleStub]
     var pairings: [TeamPairing]
@@ -80,12 +81,14 @@ struct RoundSetupSession: Codable, Hashable {
     init(
         event: EventDraft,
         courseName: String,
+        teeBoxName: String,
         players: [PlayerSnapshot],
         holes: [CourseHoleStub],
         pairings: [TeamPairing]
     ) {
         self.event = event
         self.courseName = courseName
+        self.teeBoxName = teeBoxName
         self.players = players
         self.holes = holes
         self.pairings = pairings
@@ -94,6 +97,7 @@ struct RoundSetupSession: Codable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case event
         case courseName
+        case teeBoxName
         case players
         case holes
         case pairings
@@ -103,6 +107,7 @@ struct RoundSetupSession: Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         event = try container.decode(EventDraft.self, forKey: .event)
         courseName = try container.decodeIfPresent(String.self, forKey: .courseName) ?? DemoCourseFactory.name
+        teeBoxName = try container.decodeIfPresent(String.self, forKey: .teeBoxName) ?? "White"
         players = try container.decode([PlayerSnapshot].self, forKey: .players)
         holes = try container.decode([CourseHoleStub].self, forKey: .holes)
         pairings = try container.decode([TeamPairing].self, forKey: .pairings)

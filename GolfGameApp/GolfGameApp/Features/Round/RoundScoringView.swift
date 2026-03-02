@@ -24,6 +24,9 @@ struct RoundScoringView: View {
                     Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    Text("Tee Box: \(viewModel.teeBoxName)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                     if viewModel.isRoundEnded {
                         Text("Round ended. Scoring is read-only.")
                             .foregroundStyle(.secondary)
@@ -118,7 +121,7 @@ struct RoundScoringView: View {
                             player: player,
                             flooredHandicap: viewModel.flooredHandicapDisplay(forPlayerAt: index),
                             gross: grossBinding(at: index),
-                            netText: viewModel.netDisplay(forPlayerAt: index),
+                            netText: viewModel.grossNetStrokeDisplay(forPlayerAt: index),
                             strokeCount: viewModel.strokesDisplay(forPlayerAt: index),
                             proxSelected: selectedProxWinner(for: index) == viewModel.proxWinner,
                             onTapProx: { viewModel.proxWinner = selectedProxWinner(for: index) },
@@ -153,7 +156,9 @@ struct RoundScoringView: View {
                 if let output = viewModel.lastOutput {
                     Section("Status") {
                         Text("Status: \(viewModel.matchStatusDisplay)")
-                        Text("Overall \(viewModel.teamAName)/\(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
+                        Text("Up/Down: \(viewModel.runningUpDownDisplay)")
+                            .foregroundStyle(.secondary)
+                        Text(viewModel.lastHolePointsWinnerDisplay)
                             .foregroundStyle(.secondary)
                     }
 
@@ -167,12 +172,7 @@ struct RoundScoringView: View {
                                     Text("Raw \(viewModel.teamAName) / \(viewModel.teamBName): \(output.rawTeamAPoints) / \(output.rawTeamBPoints)")
                                     Text("Multiplier: x\(output.multiplier)")
                                     Text("Multiplied \(viewModel.teamAName) / \(viewModel.teamBName): \(output.multipliedTeamAPoints) / \(output.multipliedTeamBPoints)")
-                                }
-
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Running Totals")
-                                        .font(.subheadline.weight(.semibold))
-                                    Text("Match Status: \(viewModel.matchStatusDisplay)")
+                                    Text("Running \(viewModel.teamAName) / \(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
                                 }
 
                                 if !viewModel.latestAuditLines.isEmpty {
@@ -310,7 +310,7 @@ private struct PlayerScoreRow: View {
                 Text("HI \(flooredHandicap)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Gross \(gross.isEmpty ? "-" : gross) | Net \(netText) | +\(strokeCount)")
+                Text(netText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -320,11 +320,13 @@ private struct PlayerScoreRow: View {
                 .frame(maxWidth: 80)
                 .multilineTextAlignment(.trailing)
                 .disabled(readOnly)
-            Text("+\(strokeCount)")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.green.opacity(0.18), in: Capsule())
+            if strokeCount > 0 {
+                Text("Stroke")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.green.opacity(0.18), in: Capsule())
+            }
             if proxSelected {
                 Button("PRO ✓", action: onTapProx)
                     .buttonStyle(.borderedProminent)
@@ -348,11 +350,12 @@ private struct RoundScorecardView: View {
                     .font(.headline)
                 Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
                     .foregroundStyle(.secondary)
-                if let output = viewModel.lastOutput {
-                    Text("Points \(viewModel.teamAName) / \(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Up/Down: \(viewModel.runningUpDownDisplay)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text(viewModel.lastHolePointsWinnerDisplay)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Holes") {
@@ -373,7 +376,10 @@ private struct RoundScorecardView: View {
                                 Spacer()
                                 Text("G \(gross)")
                                 Text("N \(net)")
-                                Text("St \(strokes)")
+                                if strokes > 0 {
+                                    Text("Stroke")
+                                }
+                                Text("HI \(viewModel.flooredHandicapDisplay(forPlayerAt: indexForPlayer(player.id)))")
                                     .foregroundStyle(.secondary)
                             }
                             .font(.footnote)
@@ -397,6 +403,10 @@ private struct RoundScorecardView: View {
             }
         }
         .navigationTitle("Round Scorecard")
+    }
+
+    private func indexForPlayer(_ id: String) -> Int {
+        viewModel.players.firstIndex(where: { $0.id == id }) ?? 0
     }
 }
 
