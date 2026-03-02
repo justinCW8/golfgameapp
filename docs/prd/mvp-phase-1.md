@@ -77,6 +77,48 @@ Rules:
 
 ---
 
+### 3.3b Press / Roll / Re-roll Rules
+
+#### Press
+- **Who:** Only the trailing (losing) team may call a press
+- **When:** Before the leading team tees off on that hole
+- **Effect:** Doubles the point value for that hole (multiplier ×2 per active press)
+- **Limit:** Maximum 2 presses per nine holes
+- **Reset:** Press count resets at hole 10 (separate front/back nine ledger)
+- **Carries:** Active presses carry into scoring for that hole only
+
+#### Roll
+- **Who:** Only the trailing (losing) team may call a roll
+- **When:** After the leading team tees off, but before the trailing team tees off
+- **Effect:** Doubles the point value for that hole (stacks with press multiplier)
+- **Constraint:** Roll window closes once trailing team tees off
+
+#### Re-roll
+- **Who:** Only the leading (winning) team may call a re-roll
+- **When:** After BOTH teams have teed off (roll must already be active)
+- **Effect:** Doubles again (stacks with roll and press)
+- **Constraint:** Re-roll window closes once hole is scored
+- **Requires:** An active roll on that hole
+
+#### Multiplier Formula
+```
+multiplier = 2 ^ (activePresses + rollFlag + rerollFlag)
+```
+Examples:
+- 1 press → ×2
+- 1 press + roll → ×4
+- 1 press + roll + reroll → ×8
+- 2 presses + roll + reroll → ×16
+
+#### Timing Summary
+| Action  | Who            | Window                                      |
+|---------|----------------|---------------------------------------------|
+| Press   | Trailing team  | Before leading team tees off                |
+| Roll    | Trailing team  | After leader tees off, before trailer tees off |
+| Re-roll | Leading team   | After BOTH teams tee off, before scoring    |
+
+---
+
 ### 3.4 Tee Order Logic
 
 - Manual selection on first hole

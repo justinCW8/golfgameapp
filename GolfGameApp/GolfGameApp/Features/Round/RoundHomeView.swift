@@ -28,11 +28,15 @@ struct RoundHomeView: View {
                     .disabled(session.activeRoundSession == nil)
                 }
 
-                Button(session.configuredRound != nil ? "New Round" : "Start New Round") {
-                    path.append(.setup)
+                if session.configuredRound != nil {
+                    Button("New Round") { path.append(.setup) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                } else {
+                    Button("Start New Round") { path.append(.setup) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                 }
-                .buttonStyle(session.configuredRound != nil ? .bordered : .borderedProminent)
-                .controlSize(.large)
 
                 Spacer()
             }
@@ -254,21 +258,11 @@ private struct CourseStubScreen: View {
     let onFinish: (RoundSetupSession) -> Void
 
     var body: some View {
-        List {
-            Section("\(viewModel.courseName) (18 Holes)") {
+        Form {
+            Section(viewModel.courseName) {
                 Picker("Tee Box", selection: $viewModel.teeBoxName) {
                     ForEach(RoundSetupViewModel.teeBoxOptions, id: \.self) { option in
                         Text(option).tag(option)
-                    }
-                }
-                ForEach(viewModel.holes) { hole in
-                    HStack {
-                        Text("Hole \(hole.number)")
-                        Spacer()
-                        Text("Par \(hole.par)")
-                            .foregroundStyle(.secondary)
-                        Text("Handicap \(hole.strokeIndex)")
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -278,8 +272,7 @@ private struct CourseStubScreen: View {
                 }
             }
         }
-        .navigationTitle(viewModel.courseName)
-        .listStyle(.insetGrouped)
+        .navigationTitle("Course")
     }
 }
 

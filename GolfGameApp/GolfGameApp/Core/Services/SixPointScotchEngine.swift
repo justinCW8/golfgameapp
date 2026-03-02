@@ -4,13 +4,10 @@ enum SixPointScotchActionError: Error, Equatable {
     case holeOutOfRange
     case invalidPlayerCount
     case pressRequiresTrailingTeam
-    case pressWindowClosed
     case pressLimitReached
     case rollRequiresTrailingTeam
-    case rollWindowInvalid
     case rerollRequiresRoll
     case rerollRequiresLeadingTeam
-    case rerollWindowInvalid
 }
 
 struct SixPointScotchHoleInput: Equatable {
@@ -25,8 +22,6 @@ struct SixPointScotchHoleInput: Equatable {
     var requestPressBy: TeamSide?
     var requestRollBy: TeamSide?
     var requestRerollBy: TeamSide?
-    var leaderTeedOff: Bool
-    var trailerTeedOff: Bool
 }
 
 struct SixPointScotchHoleOutput: Equatable {
@@ -73,7 +68,6 @@ struct SixPointScotchEngine {
         if let pressTeam = input.requestPressBy {
             guard ledger.usedPresses < 2 else { throw SixPointScotchActionError.pressLimitReached }
             guard trailing == pressTeam else { throw SixPointScotchActionError.pressRequiresTrailingTeam }
-            guard input.leaderTeedOff == false else { throw SixPointScotchActionError.pressWindowClosed }
             ledger.usedPresses += 1
             ledger.activePresses += 1
             holeAudit.append("Press requested by \(pressTeam.rawValue) (active this hole).")
@@ -81,7 +75,6 @@ struct SixPointScotchEngine {
 
         if let rollTeam = input.requestRollBy {
             guard trailing == rollTeam else { throw SixPointScotchActionError.rollRequiresTrailingTeam }
-            guard input.leaderTeedOff, input.trailerTeedOff == false else { throw SixPointScotchActionError.rollWindowInvalid }
             rollFlag = 1
             holeAudit.append("Roll requested by \(rollTeam.rawValue).")
         }
@@ -89,7 +82,6 @@ struct SixPointScotchEngine {
         if let rerollTeam = input.requestRerollBy {
             guard rollFlag == 1 else { throw SixPointScotchActionError.rerollRequiresRoll }
             guard leader == rerollTeam else { throw SixPointScotchActionError.rerollRequiresLeadingTeam }
-            guard input.trailerTeedOff == false else { throw SixPointScotchActionError.rerollWindowInvalid }
             rerollFlag = 1
             holeAudit.append("Re-roll requested by \(rerollTeam.rawValue).")
         }

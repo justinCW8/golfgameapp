@@ -348,7 +348,6 @@ final class AppSessionStore: ObservableObject {
     }
 
     func updateActiveRoundState(
-        teeTossFirst: TeamSide?,
         isRoundEnded: Bool,
         currentHole: Int,
         isCurrentHoleScored: Bool,
@@ -357,7 +356,6 @@ final class AppSessionStore: ObservableObject {
         strokesByPlayerByHole: [HoleStrokeAllocation]
     ) {
         guard var active = activeRoundSession else { return }
-        active.teeTossFirst = teeTossFirst
         active.isRoundEnded = isRoundEnded
         active.currentHole = currentHole
         active.isCurrentHoleScored = isCurrentHoleScored
@@ -491,8 +489,6 @@ extension SixPointScotchHoleInput: Codable {
         case requestPressBy
         case requestRollBy
         case requestRerollBy
-        case leaderTeedOff
-        case trailerTeedOff
     }
 
     init(from decoder: Decoder) throws {
@@ -508,8 +504,6 @@ extension SixPointScotchHoleInput: Codable {
         requestPressBy = try container.decodeIfPresent(TeamSide.self, forKey: .requestPressBy)
         requestRollBy = try container.decodeIfPresent(TeamSide.self, forKey: .requestRollBy)
         requestRerollBy = try container.decodeIfPresent(TeamSide.self, forKey: .requestRerollBy)
-        leaderTeedOff = try container.decode(Bool.self, forKey: .leaderTeedOff)
-        trailerTeedOff = try container.decode(Bool.self, forKey: .trailerTeedOff)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -525,7 +519,5 @@ extension SixPointScotchHoleInput: Codable {
         try container.encodeIfPresent(requestPressBy, forKey: .requestPressBy)
         try container.encodeIfPresent(requestRollBy, forKey: .requestRollBy)
         try container.encodeIfPresent(requestRerollBy, forKey: .requestRerollBy)
-        try container.encode(leaderTeedOff, forKey: .leaderTeedOff)
-        try container.encode(trailerTeedOff, forKey: .trailerTeedOff)
     }
 }
