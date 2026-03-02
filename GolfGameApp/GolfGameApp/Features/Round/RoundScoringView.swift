@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct RoundScoringView: View {
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: RoundScoringViewModel
     @State private var showEndRoundConfirmation = false
-    @State private var showFinalSummary = false
     @State private var scrollToTopToken = 0
     @State private var showLastHoleDetails = false
 
@@ -19,7 +19,7 @@ struct RoundScoringView: View {
                     .id("TOP")
 
                 Section("Match") {
-                    Text("Status: \(viewModel.nineStatusText)")
+                    Text("Status: \(viewModel.matchStatusDisplay)")
                         .font(.title3.weight(.semibold))
                     Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
                         .font(.subheadline)
@@ -31,16 +31,12 @@ struct RoundScoringView: View {
                 }
 
                 Section("Tee Box") {
-                    Text("Hole \(viewModel.currentHole) • Par \(viewModel.currentHolePar) • SI \(viewModel.currentHoleStrokeIndex)")
+                    Text("Hole \(viewModel.currentHole) • Par \(viewModel.currentHolePar) • Handicap \(viewModel.currentHoleStrokeIndex)")
                     if let teesFirst = viewModel.teesFirstTeam {
                         Text("Tee order: \(teamName(teesFirst)) tees first")
                             .foregroundStyle(.secondary)
                     } else {
                         Text("Tee order: Set tee toss to start round")
-                            .foregroundStyle(.secondary)
-                    }
-                    if let leading = viewModel.leadingTeam, let trailing = viewModel.trailingTeam {
-                        Text("Lead: \(teamName(leading)) over \(teamName(trailing))")
                             .foregroundStyle(.secondary)
                     }
 
@@ -156,7 +152,7 @@ struct RoundScoringView: View {
 
                 if let output = viewModel.lastOutput {
                     Section("Status") {
-                        Text("Status: \(statusText(output))")
+                        Text("Status: \(viewModel.matchStatusDisplay)")
                         Text("Overall \(viewModel.teamAName)/\(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
                             .foregroundStyle(.secondary)
                     }
@@ -176,11 +172,7 @@ struct RoundScoringView: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Running Totals")
                                         .font(.subheadline.weight(.semibold))
-                                    if viewModel.overallStatusText == "E" {
-                                        Text("Match Status: E")
-                                    } else if let leading = viewModel.overallLeadingTeamName {
-                                        Text("Match Status: \(leading) \(viewModel.overallStatusText)")
-                                    }
+                                    Text("Match Status: \(viewModel.matchStatusDisplay)")
                                 }
 
                                 if !viewModel.latestAuditLines.isEmpty {
@@ -212,6 +204,8 @@ struct RoundScoringView: View {
                         showLastHoleDetails = false
                         scrollToTopToken += 1
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
                     .disabled(viewModel.isRoundEnded || !viewModel.hasScoredCurrentHole || viewModel.currentHole >= 18)
 
                     if viewModel.isRoundComplete {
@@ -220,14 +214,13 @@ struct RoundScoringView: View {
                 }
 
                 Section {
-                    Button(viewModel.isRoundEnded ? "View Final Summary" : "End Round") {
-                        if viewModel.isRoundEnded {
-                            showFinalSummary = true
-                        } else {
-                            showEndRoundConfirmation = true
-                        }
+                    Button(role: .destructive) {
+                        showEndRoundConfirmation = true
+                    } label: {
+                        Text("End Round")
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(.red)
                 }
 
                 if viewModel.isRoundComplete {
@@ -248,27 +241,15 @@ struct RoundScoringView: View {
             }
         }
         .navigationTitle("Scotch Scoring")
-        .confirmationDialog(
-            "End this round? Scoring will be read-only.",
-            isPresented: $showEndRoundConfirmation,
-            titleVisibility: .visible
-        ) {
+        .confirmationDialog("End round?", isPresented: $showEndRoundConfirmation, titleVisibility: .visible) {
             Button("End Round", role: .destructive) {
-                viewModel.endRound()
-                showFinalSummary = true
+                viewModel.endRoundAndClearSession()
+                dismiss()
             }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will end the round and clear the current session.")
         }
-        .navigationDestination(isPresented: $showFinalSummary) {
-            FinalRoundSummaryView(viewModel: viewModel)
-        }
-    }
-
-    private func statusText(_ output: SixPointScotchHoleOutput) -> String {
-        let status = output.totalTeamA - output.totalTeamB
-        if status == 0 { return "E" }
-        if status > 0 { return "+\(status)" }
-        return "\(status)"
     }
 
     private var roundSummarySection: some View {
@@ -363,7 +344,7 @@ private struct RoundScorecardView: View {
     var body: some View {
         List {
             Section("Match") {
-                Text("Status: \(viewModel.finalMarginStatusText)")
+                Text("Status: \(viewModel.matchStatusDisplay)")
                     .font(.headline)
                 Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
                     .foregroundStyle(.secondary)
@@ -425,7 +406,7 @@ private struct FinalRoundSummaryView: View {
     var body: some View {
         List {
             Section("Final Match") {
-                Text("Final Margin: \(viewModel.finalMarginStatusText)")
+                Text("Final Margin: \(viewModel.matchStatusDisplay)")
                     .font(.title3.weight(.semibold))
                 Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
                     .foregroundStyle(.secondary)
