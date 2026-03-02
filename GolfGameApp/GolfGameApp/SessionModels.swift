@@ -133,10 +133,58 @@ struct PlayerSnapshot: Identifiable, Codable, Hashable {
     var handicapIndex: Double
 }
 
+struct SavedCourse: Codable, Identifiable {
+    var id: UUID = UUID()
+    var name: String
+    var teeColor: String
+    var slope: Int?
+    var courseRating: Double?
+    var holes: [CourseHoleStub]
+    var savedAt: Date = Date()
+}
+
+@MainActor
+final class CourseStore: ObservableObject {
+    @Published var courses: [SavedCourse] = []
+    private static let key = "golf_courses"
+
+    init() { load() }
+
+    func save(_ course: SavedCourse) {
+        if let idx = courses.firstIndex(where: { $0.name.lowercased() == course.name.lowercased() && $0.teeColor == course.teeColor }) {
+            courses[idx] = course
+        } else {
+            courses.insert(course, at: 0)
+        }
+        persist()
+    }
+
+    func remove(at offsets: IndexSet) {
+        for i in offsets.sorted().reversed() {
+            courses.remove(at: i)
+        }
+        persist()
+    }
+
+    private func persist() {
+        if let data = try? JSONEncoder().encode(courses) {
+            UserDefaults.standard.set(data, forKey: Self.key)
+        }
+    }
+
+    private func load() {
+        guard let data = UserDefaults.standard.data(forKey: Self.key),
+              let decoded = try? JSONDecoder().decode([SavedCourse].self, from: data) else { return }
+        courses = decoded
+    }
+}
+
 struct RoundSetupSession: Codable, Hashable {
     var event: EventDraft
     var courseName: String
     var teeBoxName: String
+    var slope: Int?
+    var courseRating: Double?
     var players: [PlayerSnapshot]
     var holes: [CourseHoleStub]
     var pairings: [TeamPairing]
@@ -145,6 +193,8 @@ struct RoundSetupSession: Codable, Hashable {
         event: EventDraft,
         courseName: String,
         teeBoxName: String,
+        slope: Int? = nil,
+        courseRating: Double? = nil,
         players: [PlayerSnapshot],
         holes: [CourseHoleStub],
         pairings: [TeamPairing]
@@ -152,18 +202,15 @@ struct RoundSetupSession: Codable, Hashable {
         self.event = event
         self.courseName = courseName
         self.teeBoxName = teeBoxName
+        self.slope = slope
+        self.courseRating = courseRating
         self.players = players
         self.holes = holes
         self.pairings = pairings
     }
 
     private enum CodingKeys: String, CodingKey {
-        case event
-        case courseName
-        case teeBoxName
-        case players
-        case holes
-        case pairings
+        case event, courseName, teeBoxName, slope, courseRating, players, holes, pairings
     }
 
     init(from decoder: Decoder) throws {
@@ -171,6 +218,8 @@ struct RoundSetupSession: Codable, Hashable {
         event = try container.decode(EventDraft.self, forKey: .event)
         courseName = try container.decodeIfPresent(String.self, forKey: .courseName) ?? DemoCourseFactory.name
         teeBoxName = try container.decodeIfPresent(String.self, forKey: .teeBoxName) ?? "White"
+        slope = try container.decodeIfPresent(Int.self, forKey: .slope)
+        courseRating = try container.decodeIfPresent(Double.self, forKey: .courseRating)
         players = try container.decode([PlayerSnapshot].self, forKey: .players)
         holes = try container.decode([CourseHoleStub].self, forKey: .holes)
         pairings = try container.decode([TeamPairing].self, forKey: .pairings)
