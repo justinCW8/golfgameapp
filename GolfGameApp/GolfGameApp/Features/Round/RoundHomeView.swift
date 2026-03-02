@@ -487,7 +487,7 @@ private final class ScanViewModel: ObservableObject {
 
     func toHoleStubs() -> [CourseHoleStub] {
         scannedData.holes.map {
-            CourseHoleStub(number: $0.number, par: $0.par ?? 4, strokeIndex: $0.strokeIndex ?? $0.number)
+            CourseHoleStub(number: $0.number, par: $0.par ?? 4, strokeIndex: $0.strokeIndex ?? $0.number, yardage: $0.yardage ?? 0)
         }
     }
 
@@ -498,7 +498,7 @@ private final class ScanViewModel: ObservableObject {
         slopeText = ""
         ratingText = ""
         scannedData = ScannedCourseData(
-            holes: DemoCourseFactory.holes18().map { ScannedHole(number: $0.number, par: $0.par, strokeIndex: $0.strokeIndex) },
+            holes: DemoCourseFactory.holes18().map { ScannedHole(number: $0.number, par: $0.par, strokeIndex: $0.strokeIndex, yardage: $0.yardage) },
             slope: nil,
             courseRating: nil
         )
@@ -730,7 +730,7 @@ private struct CourseSetupScreen: View {
                 HStack {
                     Text("Hole").frame(width: 36, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Text("Par").frame(width: 44, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text("SI").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Stroke Index").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 }
                 ForEach(scanVM.scannedData.holes, id: \.number) { hole in
                     HoleReviewRow(
@@ -800,7 +800,7 @@ private struct CourseSetupScreen: View {
         scanVM.slopeText = saved.slope.map { String($0) } ?? ""
         scanVM.ratingText = saved.courseRating.map { String(format: "%.1f", $0) } ?? ""
         scanVM.scannedData = ScannedCourseData(
-            holes: saved.holes.map { ScannedHole(number: $0.number, par: $0.par, strokeIndex: $0.strokeIndex) },
+            holes: saved.holes.map { ScannedHole(number: $0.number, par: $0.par, strokeIndex: $0.strokeIndex, yardage: $0.yardage) },
             slope: saved.slope,
             courseRating: saved.courseRating
         )

@@ -32,6 +32,20 @@ final class RoundScoringViewModel: ObservableObject {
         sessionStore.activeRoundSession?.setup.players ?? []
     }
 
+    /// Players with their original index, sorted Team A first then Team B.
+    /// Use originalIndex for gross binding and ProxWinner mapping.
+    var playersWithOriginalIndex: [(originalIndex: Int, player: PlayerSnapshot)] {
+        let teamAIDs = Set(teamPlayerIDs(for: .teamA))
+        return players.enumerated()
+            .sorted { a, b in
+                let aIsA = teamAIDs.contains(a.element.id)
+                let bIsA = teamAIDs.contains(b.element.id)
+                if aIsA == bIsA { return false }
+                return aIsA
+            }
+            .map { ($0.offset, $0.element) }
+    }
+
     var playerNames: [String] {
         players.map(\.name)
     }
@@ -48,6 +62,10 @@ final class RoundScoringViewModel: ObservableObject {
         sessionStore.activeRoundSession?.setup.teeBoxName ?? "White"
     }
 
+    var courseName: String {
+        sessionStore.activeRoundSession?.setup.courseName ?? ""
+    }
+
     var canScore: Bool {
         !isRoundEnded &&
         allRequiredInputs.count == requiredInputCount &&
@@ -57,8 +75,55 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     var latestAuditLines: [String] {
-        guard let audit = lastOutput?.auditLog, !audit.isEmpty else { return [] }
-        return Array(audit.suffix(8))
+        guard let audit = lastOutput?.auditLog,
+              let holeNum = lastOutput?.holeNumber else { return [] }
+        let header = "Hole \(holeNum)"
+        guard let startIdx = audit.lastIndex(where: { $0 == header }) else { return [] }
+        var lines = audit[startIdx...].map { formatAuditLine($0) }
+        // Move the summary line (always last) to position 1, right after the hole header
+        if lines.count > 2 {
+            let summary = lines.removeLast()
+            lines.insert(summary, at: 1)
+        }
+        return lines
+    }
+
+    private func formatAuditLine(_ raw: String) -> String {
+        if let pretty = reformatMultiplierLine(raw) { return pretty }
+        return raw
+            .replacingOccurrences(of: "teamA", with: teamAName)
+            .replacingOccurrences(of: "teamB", with: teamBName)
+    }
+
+    private func reformatMultiplierLine(_ line: String) -> String? {
+        let pattern = #"Multiplier=2\^(\d+)=(\d+)\. Raw A/B=(\d+)/(\d+)\. Final A/B=(\d+)/(\d+)\."#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let m = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              let expR  = Range(m.range(at: 1), in: line),
+              let rawAR = Range(m.range(at: 3), in: line),
+              let rawBR = Range(m.range(at: 4), in: line),
+              let exp  = Int(line[expR]),
+              let rawA = Int(line[rawAR]),
+              let rawB = Int(line[rawBR])
+        else { return nil }
+
+        func forChain(raw: Int) -> String {
+            guard exp > 0 else { return "\(raw) pts" }
+            var steps = [raw]
+            var cur = raw
+            for _ in 0..<exp { cur *= 2; steps.append(cur) }
+            return steps.map { String($0) }.joined(separator: " for ")
+        }
+
+        if rawA > 0 && rawB == 0 {
+            return "\(teamAName) \(forChain(raw: rawA))"
+        } else if rawB > 0 && rawA == 0 {
+            return "\(teamBName) \(forChain(raw: rawB))"
+        } else if rawA > 0 && rawB > 0 {
+            return "\(teamAName) \(forChain(raw: rawA))  ·  \(teamBName) \(forChain(raw: rawB))"
+        } else {
+            return "Halved"
+        }
     }
 
     var currentNineLedger: NineLedger {
@@ -75,6 +140,16 @@ final class RoundScoringViewModel: ObservableObject {
 
     var pressesRemainingThisNine: Int {
         max(0, 2 - currentNineLedger.usedPresses)
+    }
+
+    var pressStatusText: String {
+        let active = currentNineLedger.activePresses
+        let remaining = pressesRemainingThisNine
+        let nine = currentHole <= 9 ? "front 9" : "back 9"
+        if active > 0 {
+            return "\(active) press\(active == 1 ? "" : "es") active · \(remaining) remaining · \(nine)"
+        }
+        return "\(remaining) presses remaining · \(nine)"
     }
 
     var nineStatusText: String {
@@ -579,13 +654,22 @@ final class RoundScoringViewModel: ObservableObject {
     }
 
     private func proxDistancesFromWinner(_ winner: ProxWinner) -> (Double?, Double?) {
+        let idx: Int
         switch winner {
-        case .player1, .player2:
+        case .player1: idx = 0
+        case .player2: idx = 1
+        case .player3: idx = 2
+        case .player4: idx = 3
+        case .none: return (nil, nil)
+        }
+        guard players.indices.contains(idx) else { return (nil, nil) }
+        let playerID = players[idx].id
+        let teamAIDs = teamPlayerIDs(for: .teamA)
+        // Return (teamAProxFeet, teamBProxFeet): the winning team gets distance 1, loser gets 2
+        if teamAIDs.contains(playerID) {
             return (1, 2)
-        case .player3, .player4:
+        } else {
             return (2, 1)
-        case .none:
-            return (nil, nil)
         }
     }
 

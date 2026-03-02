@@ -65,34 +65,57 @@ struct SixPointScotchEngine {
         var rollFlag = 0
         var rerollFlag = 0
 
+        let nineName = isFrontNine ? "front 9" : "back 9"
+
         if let pressTeam = input.requestPressBy {
             guard ledger.usedPresses < 2 else { throw SixPointScotchActionError.pressLimitReached }
             guard trailing == pressTeam else { throw SixPointScotchActionError.pressRequiresTrailingTeam }
             ledger.usedPresses += 1
             ledger.activePresses += 1
-            holeAudit.append("Press requested by \(pressTeam.rawValue) (active this hole).")
+            holeAudit.append("Press by \(pressTeam.rawValue) · \(nineName) (\(ledger.activePresses) active).")
         }
 
         if let rollTeam = input.requestRollBy {
             guard trailing == rollTeam else { throw SixPointScotchActionError.rollRequiresTrailingTeam }
             rollFlag = 1
-            holeAudit.append("Roll requested by \(rollTeam.rawValue).")
+            holeAudit.append("Roll by \(rollTeam.rawValue).")
         }
 
         if let rerollTeam = input.requestRerollBy {
             guard rollFlag == 1 else { throw SixPointScotchActionError.rerollRequiresRoll }
             guard leader == rerollTeam else { throw SixPointScotchActionError.rerollRequiresLeadingTeam }
             rerollFlag = 1
-            holeAudit.append("Re-roll requested by \(rerollTeam.rawValue).")
+            holeAudit.append("Re-roll by \(rerollTeam.rawValue).")
         }
 
         var rawA = 0
         var rawB = 0
 
-        applyBucket(points: 2, winner: lowManWinner(teamANet: input.teamANetScores, teamBNet: input.teamBNetScores), toA: &rawA, toB: &rawB)
-        applyBucket(points: 2, winner: lowTeamWinner(teamANet: input.teamANetScores, teamBNet: input.teamBNetScores), toA: &rawA, toB: &rawB)
-        applyBucket(points: 1, winner: naturalBirdieWinner(par: input.par, teamAGross: input.teamAGrossScores, teamBGross: input.teamBGrossScores), toA: &rawA, toB: &rawB)
-        applyBucket(points: 1, winner: proxWinner(teamAProxFeet: input.teamAProxFeet, teamBProxFeet: input.teamBProxFeet), toA: &rawA, toB: &rawB)
+        let lowManW = lowManWinner(teamANet: input.teamANetScores, teamBNet: input.teamBNetScores)
+        let lowTeamW = lowTeamWinner(teamANet: input.teamANetScores, teamBNet: input.teamBNetScores)
+        let birdieW = naturalBirdieWinner(par: input.par, teamAGross: input.teamAGrossScores, teamBGross: input.teamBGrossScores)
+        let proxW = proxWinner(
+            par: input.par,
+            teamAProxFeet: input.teamAProxFeet, teamANet: input.teamANetScores,
+            teamBProxFeet: input.teamBProxFeet, teamBNet: input.teamBNetScores
+        )
+
+        applyBucket(points: 2, winner: lowManW,  toA: &rawA, toB: &rawB)
+        applyBucket(points: 2, winner: lowTeamW, toA: &rawA, toB: &rawB)
+        applyBucket(points: 1, winner: birdieW,  toA: &rawA, toB: &rawB)
+        applyBucket(points: 1, winner: proxW,    toA: &rawA, toB: &rawB)
+
+        let buckets: [(String, Int, TeamSide?)] = [
+            ("Low Man", 2, lowManW), ("Low Team", 2, lowTeamW),
+            ("Birdie", 1, birdieW), ("Prox", 1, proxW)
+        ]
+        for (name, pts, winner) in buckets {
+            switch winner {
+            case .teamA: holeAudit.append("\(name): teamA (\(pts))")
+            case .teamB: holeAudit.append("\(name): teamB (\(pts))")
+            case nil: break
+            }
+        }
 
         if rawA == 6 {
             rawA = 12
@@ -168,17 +191,25 @@ struct SixPointScotchEngine {
         return aHasBirdie ? .teamA : .teamB
     }
 
-    private func proxWinner(teamAProxFeet: Double?, teamBProxFeet: Double?) -> TeamSide? {
-        switch (teamAProxFeet, teamBProxFeet) {
-        case (.some, .none):
-            return .teamA
-        case (.none, .some):
-            return .teamB
+    /// Only award prox to a team if at least one player hit GIR (net ≤ par).
+    /// A player's net score equals gross minus strokes received; GIR in net terms
+    /// means they could have been on in (par-2) and 2-putted → net ≤ par.
+    private func proxWinner(
+        par: Int,
+        teamAProxFeet: Double?, teamANet: [Int],
+        teamBProxFeet: Double?, teamBNet: [Int]
+    ) -> TeamSide? {
+        let aEligible = teamANet.contains(where: { $0 <= par })
+        let bEligible = teamBNet.contains(where: { $0 <= par })
+        let aProx: Double? = aEligible ? teamAProxFeet : nil
+        let bProx: Double? = bEligible ? teamBProxFeet : nil
+        switch (aProx, bProx) {
+        case (.some, .none): return .teamA
+        case (.none, .some): return .teamB
         case (.some(let a), .some(let b)):
             if a == b { return nil }
             return a < b ? .teamA : .teamB
-        default:
-            return nil
+        default: return nil
         }
     }
 

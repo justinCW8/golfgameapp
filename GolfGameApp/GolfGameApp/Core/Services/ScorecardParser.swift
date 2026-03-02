@@ -4,6 +4,7 @@ struct ScannedHole {
     var number: Int
     var par: Int?
     var strokeIndex: Int?
+    var yardage: Int?
 }
 
 struct TeeRating {
@@ -31,6 +32,7 @@ struct ScannedCourseData {
         for idx in holes.indices {
             if holes[idx].par == nil { holes[idx].par = other.holes[idx].par }
             if holes[idx].strokeIndex == nil { holes[idx].strokeIndex = other.holes[idx].strokeIndex }
+            if holes[idx].yardage == nil { holes[idx].yardage = other.holes[idx].yardage }
         }
         if slope == nil { slope = other.slope }
         if courseRating == nil { courseRating = other.courseRating }

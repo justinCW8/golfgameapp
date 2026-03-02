@@ -58,7 +58,7 @@ struct CourseSearchService {
             let key = teeSet.teeName
             teeRatings[key] = TeeRating(rating: teeSet.courseRating, slope: teeSet.slopeRating)
             holesByTee[key] = teeSet.holes.enumerated().map { idx, hole in
-                ScannedHole(number: idx + 1, par: hole.par, strokeIndex: hole.handicap)
+                ScannedHole(number: idx + 1, par: hole.par, strokeIndex: hole.handicap, yardage: hole.yardage)
             }
         }
 
@@ -120,5 +120,6 @@ private struct GolfAPITeeSet: Decodable {
 
 private struct GolfAPIHole: Decodable {
     let par: Int
+    let yardage: Int
     let handicap: Int   // stroke index in the API
 }

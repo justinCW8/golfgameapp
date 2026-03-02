@@ -27,6 +27,11 @@ struct RoundScoringView: View {
                     VStack(spacing: 10) {
                         // HOLE INFO — prominent at top
                         VStack(spacing: 3) {
+                            if !viewModel.courseName.isEmpty {
+                                Text(viewModel.courseName)
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
                             Text("Hole \(viewModel.currentHole)  ·  Par \(viewModel.currentHolePar)  ·  \(viewModel.currentHoleYardage)yds")
                                 .font(.title3.weight(.bold))
                             HStack(spacing: 6) {
@@ -45,7 +50,7 @@ struct RoundScoringView: View {
                         // MATCH STATUS — margin-based, leader in green
                         HStack(spacing: 0) {
                             Text(viewModel.teamAName)
-                                .font(.subheadline.weight(.semibold))
+                                .font(viewModel.teamALeads ? .title2.weight(.bold) : .subheadline.weight(.semibold))
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity)
                                 .foregroundStyle(
@@ -64,7 +69,7 @@ struct RoundScoringView: View {
                             }
                             .frame(width: 72)
                             Text(viewModel.teamBName)
-                                .font(.subheadline.weight(.semibold))
+                                .font(viewModel.teamBLeads ? .title2.weight(.bold) : .subheadline.weight(.semibold))
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity)
                                 .foregroundStyle(
@@ -104,7 +109,7 @@ struct RoundScoringView: View {
                             }
                             .disabled(!viewModel.canRequestReroll && !viewModel.requestReroll)
                         }
-                        Text("Presses remaining this nine: \(viewModel.pressesRemainingThisNine)")
+                        Text(viewModel.pressStatusText)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -113,15 +118,15 @@ struct RoundScoringView: View {
 
                 // SCORE ENTRY
                 Section("Player Gross / Net") {
-                    ForEach(Array(viewModel.players.enumerated()), id: \.element.id) { index, player in
+                    ForEach(viewModel.playersWithOriginalIndex, id: \.player.id) { originalIndex, player in
                         PlayerScoreRow(
                             player: player,
-                            flooredHandicap: viewModel.flooredHandicapDisplay(forPlayerAt: index),
-                            gross: grossBinding(at: index),
-                            netText: viewModel.grossNetStrokeDisplay(forPlayerAt: index),
-                            strokeCount: viewModel.strokesDisplay(forPlayerAt: index),
-                            proxSelected: selectedProxWinner(for: index) == viewModel.proxWinner,
-                            onTapProx: { viewModel.proxWinner = selectedProxWinner(for: index) },
+                            flooredHandicap: viewModel.flooredHandicapDisplay(forPlayerAt: originalIndex),
+                            gross: grossBinding(at: originalIndex),
+                            netText: viewModel.grossNetStrokeDisplay(forPlayerAt: originalIndex),
+                            strokeCount: viewModel.strokesDisplay(forPlayerAt: originalIndex),
+                            proxSelected: selectedProxWinner(for: originalIndex) == viewModel.proxWinner,
+                            onTapProx: { viewModel.proxWinner = selectedProxWinner(for: originalIndex) },
                             readOnly: viewModel.isRoundEnded
                         )
                     }
