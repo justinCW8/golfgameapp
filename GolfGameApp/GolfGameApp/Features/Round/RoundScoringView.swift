@@ -4,6 +4,7 @@ struct RoundScoringView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: RoundScoringViewModel
     @State private var showEndRoundConfirmation = false
+    @State private var showFinalSummary = false
     @State private var scrollToTopToken = 0
     @State private var showLastHoleDetails = false
 
@@ -243,12 +244,18 @@ struct RoundScoringView: View {
         .navigationTitle("Scotch Scoring")
         .confirmationDialog("End round?", isPresented: $showEndRoundConfirmation, titleVisibility: .visible) {
             Button("End Round", role: .destructive) {
-                viewModel.endRoundAndClearSession()
-                dismiss()
+                viewModel.endRound()
+                showFinalSummary = true
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will end the round and clear the current session.")
+        }
+        .sheet(isPresented: $showFinalSummary) {
+            FinalRoundSummaryView(viewModel: viewModel) {
+                viewModel.endRoundAndClearSession()
+                dismiss()
+            }
         }
     }
 
@@ -414,35 +421,66 @@ private struct RoundScorecardView: View {
 
 private struct FinalRoundSummaryView: View {
     @ObservedObject var viewModel: RoundScoringViewModel
+    let onDone: () -> Void
 
     var body: some View {
-        List {
-            Section("Final Match") {
-                Text("Final Margin: \(viewModel.matchStatusDisplay)")
-                    .font(.title3.weight(.semibold))
-                Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
-                    .foregroundStyle(.secondary)
-                if let output = viewModel.lastOutput {
-                    Text("Total Points \(viewModel.teamAName) / \(viewModel.teamBName): \(output.totalTeamA) / \(output.totalTeamB)")
-                } else {
-                    Text("No holes scored")
+        NavigationStack {
+            List {
+                Section {
+                    Text(viewModel.matchStatusDisplay)
+                        .font(.title2.weight(.bold))
+                    Text("\(viewModel.teamAName) vs \(viewModel.teamBName)")
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            Section("Player Totals") {
-                ForEach(viewModel.players) { player in
-                    let gross = viewModel.totalGrossByPlayerID[player.id, default: 0]
-                    let net = viewModel.totalNetByPlayerID[player.id, default: 0]
-                    HStack {
-                        Text(player.name)
-                        Spacer()
-                        Text("Gross \(gross)")
-                        Text("Net \(net)")
+                if let output = viewModel.lastOutput {
+                    Section("Team Points") {
+                        HStack {
+                            Text(viewModel.teamAName)
+                            Spacer()
+                            Text("\(output.totalTeamA) pts")
+                                .monospacedDigit()
+                        }
+                        HStack {
+                            Text(viewModel.teamBName)
+                            Spacer()
+                            Text("\(output.totalTeamB) pts")
+                                .monospacedDigit()
+                        }
+                    }
+                }
+
+                Section("Holes Played") {
+                    Text("\(viewModel.holeResults.count) of 18")
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    NavigationLink("View Scorecard") {
+                        RoundScorecardView(viewModel: viewModel)
+                    }
+                    .disabled(viewModel.holeResults.isEmpty)
+                }
+
+                Section("Player Totals") {
+                    ForEach(viewModel.players) { player in
+                        let gross = viewModel.totalGrossByPlayerID[player.id, default: 0]
+                        let net = viewModel.totalNetByPlayerID[player.id, default: 0]
+                        HStack {
+                            Text(player.name)
+                            Spacer()
+                            Text("Gross \(gross)")
+                            Text("Net \(net)")
+                        }
                     }
                 }
             }
+            .navigationTitle("Final Summary")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", action: onDone)
+                }
+            }
         }
-        .navigationTitle("Final Summary")
     }
 }
