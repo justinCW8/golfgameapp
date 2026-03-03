@@ -15,7 +15,7 @@ struct ContentView: View {
 
             EventHomeView()
                 .tabItem {
-                    Label("Events", systemImage: "list.number")
+                    Label("Stableford", systemImage: "list.number")
                 }
         }
     }

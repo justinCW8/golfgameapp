@@ -305,6 +305,38 @@ struct EventSession: Codable {
     var holeResultsByPlayer: [String: [StablefordHoleResult]]
     var currentHoleByGroup: [String: Int]
     var updatedAt: Date
+    var isQuickGame: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, date, courseName, holes, players, groups
+        case holeResultsByPlayer, currentHoleByGroup, updatedAt, isQuickGame
+    }
+
+    init(id: UUID, name: String, date: Date, courseName: String,
+         holes: [CourseHoleStub], players: [PlayerSnapshot], groups: [EventGroup],
+         holeResultsByPlayer: [String: [StablefordHoleResult]],
+         currentHoleByGroup: [String: Int], updatedAt: Date, isQuickGame: Bool = false) {
+        self.id = id; self.name = name; self.date = date; self.courseName = courseName
+        self.holes = holes; self.players = players; self.groups = groups
+        self.holeResultsByPlayer = holeResultsByPlayer
+        self.currentHoleByGroup = currentHoleByGroup; self.updatedAt = updatedAt
+        self.isQuickGame = isQuickGame
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        date = try c.decode(Date.self, forKey: .date)
+        courseName = try c.decode(String.self, forKey: .courseName)
+        holes = try c.decode([CourseHoleStub].self, forKey: .holes)
+        players = try c.decode([PlayerSnapshot].self, forKey: .players)
+        groups = try c.decode([EventGroup].self, forKey: .groups)
+        holeResultsByPlayer = try c.decode([String: [StablefordHoleResult]].self, forKey: .holeResultsByPlayer)
+        currentHoleByGroup = try c.decode([String: Int].self, forKey: .currentHoleByGroup)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        isQuickGame = try c.decodeIfPresent(Bool.self, forKey: .isQuickGame) ?? false
+    }
 }
 
 struct RoundSession: Codable {
@@ -477,6 +509,27 @@ final class AppSessionStore: ObservableObject {
             updatedAt: Date()
         )
         persist()
+    }
+
+    @discardableResult
+    func startQuickGame(players: [PlayerSnapshot], holes: [CourseHoleStub], courseName: String) -> String {
+        let groupID = "group-quick"
+        let group = EventGroup(id: groupID, name: "Group 1", playerIDs: players.map(\.id))
+        activeEventSession = EventSession(
+            id: UUID(),
+            name: "Quick Game",
+            date: Date(),
+            courseName: courseName.isEmpty ? DemoCourseFactory.name : courseName,
+            holes: holes,
+            players: players,
+            groups: [group],
+            holeResultsByPlayer: [:],
+            currentHoleByGroup: [groupID: 1],
+            updatedAt: Date(),
+            isQuickGame: true
+        )
+        persist()
+        return groupID
     }
 
     func updateActiveEventSession(_ session: EventSession) {

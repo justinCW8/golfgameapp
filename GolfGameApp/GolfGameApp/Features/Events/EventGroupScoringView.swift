@@ -101,7 +101,7 @@ struct EventGroupScoringView: View {
                         if strokes > 3 {
                             Text("+\(strokes - 3)")
                                 .font(.caption2)
-                                .foregroundStyle(.accentColor)
+                                .foregroundStyle(Color.accentColor)
                         }
                     }
                 }
@@ -165,7 +165,7 @@ struct EventGroupScoringView: View {
         if n >= 3 { return .green }
         if n >= 2 { return .primary }
         if n >= 1 { return .secondary }
-        return .tertiary
+        return Color.secondary.opacity(0.4)
     }
 
     // MARK: - Actions

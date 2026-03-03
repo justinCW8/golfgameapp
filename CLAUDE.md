@@ -47,6 +47,10 @@ All paths are relative to the repo root.
 | Vision OCR wrapper | `GolfGameApp/GolfGameApp/Core/Services/ScorecardScanner.swift` |
 | PRD master document | `docs/prd/mvp-phase-1.md` |
 | Six Point Scotch rules PRD | `docs/prd/games/six-point-scotch.md` |
+| Stableford rules PRD | `docs/prd/games/stableford-final.md` |
+| Stableford home + setup | `GolfGameApp/GolfGameApp/Features/Events/EventHomeView.swift` |
+| Stableford scoring UI | `GolfGameApp/GolfGameApp/Features/Events/EventGroupScoringView.swift` |
+| Stableford scoring ViewModel | `GolfGameApp/GolfGameApp/Features/Events/EventGroupScoringViewModel.swift` |
 
 ## Data Models (SessionModels.swift)
 
@@ -55,10 +59,14 @@ Key types:
 - `RoundSetupSession` — full round configuration: players, pairings, course holes, slope, courseRating, teeBoxName
 - `CourseHoleStub` — per-hole data: `holeNumber`, `par`, `strokeIndex`, `yardage`
 - `PlayerSnapshot` — player in round: `id`, `name`, `handicapIndex`, `courseHandicap`
-- `AppSessionStore` — JSON file persistence, implements `SessionModel` protocol
+- `AppSessionStore` — JSON file persistence, implements `SessionModel` protocol; `SessionModel` is a typealias (not a protocol)
 - `BuddyStore` — UserDefaults persistence, `@Published var buddies: [Buddy]`
 - `CourseStore` — UserDefaults persistence, `@Published var courses: [SavedCourse]`
 - `SavedCourse` — saved course: `name`, `teeColor`, `slope`, `courseRating`, `holes: [CourseHoleStub]`
+- `EventSession` — Stableford quick game session (JSON persisted alongside `RoundSession`); uses custom `Codable` with `decodeIfPresent` for `isQuickGame`
+- `EventGroup` — `id`, `name`, `playerIDs: [String]`
+- `StablefordHoleResult` — `playerID`, `holeNumber`, `gross`, `net`, `points`, `strokes`
+- `strokeCountForHandicapIndex(_ handicapIndex: Double, onHoleStrokeIndex si: Int) -> Int` — shared helper used by both Scotch and Stableford engines
 
 ## Course Setup Flow
 
@@ -153,6 +161,93 @@ Killed-and-relaunched app resumes from last scored hole (session persisted as JS
 **`NineLedger.activePresses`** accumulates across all holes in the nine (not just the current hole). Two presses correctly produces ×4.
 
 **GolfCourseAPI.com** `handicap` field = stroke index (not player handicap). `yardage` is a separate field — must be decoded explicitly in `GolfAPIHole`.
+
+## Stableford — Quick Game
+
+### Overview
+Stableford is individual scoring: points earned per hole based on net score vs par. No teams, no presses, no prox. Higher total wins.
+
+**Points scale (club standard — confirmed correct):**
+| Net vs Par | Points |
+|---|---|
+| −3 or better (albatross+) | 5 |
+| −2 (eagle) | 4 |
+| −1 (birdie) | 3 |
+| 0 (par) | 2 |
+| +1 (bogey) | 1 |
+| +2+ (double bogey or worse) | 0 |
+
+**Handicap strokes:** `strokesOnHole = 1 if holeStrokeIndex <= floor(handicapIndex), else 0`. No allowance percentage — always 100%.
+
+**Pickup:** `pickupGross = par + 2 + strokesOnHole`. Records 0 points. Pace-of-play shortcut.
+
+### Key Files
+
+| Purpose | File |
+|---------|------|
+| Stableford engine (stateless) | `GolfGameApp/GolfGameApp/Core/Services/StablefordEngine.swift` |
+| Session model + persistence | `GolfGameApp/GolfGameApp/SessionModels.swift` (see `EventSession`) |
+| Home screen + setup flow | `GolfGameApp/GolfGameApp/Features/Events/EventHomeView.swift` |
+| Hole-by-hole scoring UI | `GolfGameApp/GolfGameApp/Features/Events/EventGroupScoringView.swift` |
+| Scoring ViewModel | `GolfGameApp/GolfGameApp/Features/Events/EventGroupScoringViewModel.swift` |
+| Stableford PRD | `docs/prd/games/stableford-final.md` |
+
+### Data Models (SessionModels.swift)
+
+- `EventSession` — persisted as JSON alongside `RoundSession`. Key fields: `players`, `groups`, `holes`, `holeResultsByPlayer`, `currentHoleByGroup`, `isQuickGame: Bool`
+- `EventGroup` — `id`, `name`, `playerIDs: [String]`
+- `StablefordHoleResult` — `playerID`, `holeNumber`, `gross`, `net`, `points`, `strokes`
+- `AppSessionStore.startQuickGame(players:holes:courseName:) -> String` — creates `EventSession` with `isQuickGame = true`, one group, returns `groupID`
+- `AppSessionStore.clearActiveEventSession()` — ends the game
+
+`isQuickGame` uses custom `Codable` with `decodeIfPresent` defaulting to `false` — backward compatible with sessions saved before the field existed.
+
+### App Structure (Stableford tab)
+
+`EventHomeView` (Stableford tab) uses `NavigationStack` with path-based routing:
+
+```
+EventRoute.quickSetup  → QuickGameSetupFlowView
+EventRoute.groupScoring(String)  → EventGroupScoringView
+```
+
+**Home screen states:**
+- No active session → "Quick Game" button
+- Active session → course name + player names + "Continue Scoring" + "End Game"
+
+**Setup flow (Quick Game):**
+```
+QuickGameSetupFlowView
+  → EventPlayersScreen (2–4 players, buddy picker, max 4)
+  → EventCourseScreen (search / saved courses / OCR scan)
+  → "Start Game" button → startQuickGame() → path = [.groupScoring(groupID)]
+```
+
+Setup reuses `EventSetupViewModel` (same ViewModel for players + course), `ScanViewModel` (same course search/OCR logic as Round tab), `BuddiesSheet`, `HoleReviewRow`, `ImagePicker`.
+
+### Scoring Flow
+
+`EventGroupScoringView` / `EventGroupScoringViewModel`:
+- Hole-by-hole: hole header (hole #, par, SI, yardage), player rows, action buttons
+- Per-player row: name, CH (course handicap displayed), stroke dots (filled circles showing handicap strokes on this hole), Pickup capsule button, gross TextField, live net/points preview
+- "Score Hole" → saves `StablefordHoleResult` for each player, advances `currentHoleByGroup`
+- "Edit Last Hole" → restores previous gross inputs, removes results, decrements hole counter
+- Running totals shown below results
+- Completed banner after hole 18
+
+**Pickup toggle:** marks player as pickup, disables gross TextField, stores `pickupGross` as gross, forces `points = 0`.
+
+**`canScore`:** true when all players have either a pickup flag or a valid Int gross input.
+
+### Architecture Decisions Made
+
+**Multi-group event format removed from UI** (Swarm session, March 2026). The multi-group flow required multiple devices with no sync — misleading UX. Code removed: `EventSetupFlowView`, `EventBasicsScreen`, `EventGroupAssignmentScreen`, `EventLeaderboardView`, `ActiveEventCard`. Backend sync needed before this can return.
+
+**Countback tie-break** is implemented in `EventGroupScoringViewModel.leaderboardRows(from:)` using segments `[10...18, 13...18, 16...18, 18...18]` — retained in the ViewModel even though the leaderboard UI is removed, in case it's needed for a future scorecard summary view.
+
+### Pending Architecture Decision
+
+Stableford and Six Point Scotch currently run as separate sessions in separate tabs with no shared gross score input. In real golf, players routinely score both games simultaneously from the same gross scores. A unified "Round with multiple active games" model is planned — requires Nassau PRD to be complete before rearchitecting. Do not refactor until all three game specs (Scotch, Stableford, Nassau) are finalised.
 
 ## Commit Discipline
 

@@ -15,33 +15,32 @@ struct EventHomeView: View {
             VStack(spacing: 20) {
                 Spacer()
 
-                if let active = session.activeEventSession {
-                    ActiveEventCard(event: active)
+                if let active = session.activeEventSession, let group = active.groups.first {
+                    VStack(spacing: 6) {
+                        Text(active.courseName)
+                            .font(.headline)
+                        Text(active.players.map(\.name).joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal)
 
-                    Button("Open Leaderboard") {
-                        path.append(.leaderboard)
+                    Button("Continue Scoring") {
+                        path = [.groupScoring(group.id)]
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    Button("Create New Event") {
-                        path.append(.setup)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-
-                    Button("End Event") {
+                    Button("End Game") {
                         showEndEventConfirmation = true
                     }
                     .buttonStyle(.bordered)
                     .foregroundStyle(.red)
                     .controlSize(.large)
                 } else {
-                    Text("No event in progress.")
-                        .foregroundStyle(.secondary)
-
-                    Button("Create Event") {
-                        path.append(.setup)
+                    Button("Quick Game") {
+                        path.append(.quickSetup)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
@@ -50,32 +49,32 @@ struct EventHomeView: View {
                 Spacer()
             }
             .padding()
-            .navigationTitle("Events")
+            .navigationTitle("Stableford")
             .navigationDestination(for: EventRoute.self) { route in
                 switch route {
-                case .setup:
-                    EventSetupFlowView { _ in
-                        path.append(.leaderboard)
+                case .quickSetup:
+                    QuickGameSetupFlowView { groupID in
+                        path = [.groupScoring(groupID)]
                     }
-                case .leaderboard:
-                    EventLeaderboardView(session: session)
+                case .groupScoring(let groupID):
+                    EventGroupScoringView(session: session, groupID: groupID)
                 }
             }
-            .alert("End Event?", isPresented: $showEndEventConfirmation) {
-                Button("End Event", role: .destructive) {
+            .alert("End Game?", isPresented: $showEndEventConfirmation) {
+                Button("End Game", role: .destructive) {
                     session.clearActiveEventSession()
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This clears the current event and all scores. This cannot be undone.")
+                Text("This clears the current game and all scores. This cannot be undone.")
             }
         }
     }
 }
 
 private enum EventRoute: Hashable {
-    case setup
-    case leaderboard
+    case quickSetup
+    case groupScoring(String)
 }
 
 // MARK: - ScanViewModel
@@ -414,10 +413,7 @@ private struct BuddiesSheet: View {
 
 @MainActor
 private final class EventSetupViewModel: ObservableObject {
-    @Published var eventName: String = ""
-    @Published var eventDate: Date = Date()
     @Published var players: [PlayerDraft] = (1...4).map { _ in PlayerDraft() }
-    @Published var groupByPlayerID: [String: Int] = [:]
     @Published var errorMessage: String?
 
     // Course data — populated by EventCourseScreen
@@ -427,68 +423,22 @@ private final class EventSetupViewModel: ObservableObject {
     @Published var slope: Int? = nil
     @Published var courseRating: Double? = nil
 
-    init() { syncAssignments() }
-
-    var trimmedEventName: String {
-        eventName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     var namedPlayers: [PlayerDraft] {
         players.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
-    var hasValidEventName: Bool { !trimmedEventName.isEmpty }
-
     var hasValidPlayerCount: Bool { namedPlayers.count >= 2 }
-
-    var groupCount: Int {
-        max(1, Int(ceil(Double(namedPlayers.count) / 4.0)))
-    }
-
-    var groupSizes: [Int: Int] {
-        var counts: [Int: Int] = [:]
-        for player in namedPlayers {
-            let key = groupByPlayerID[player.id.uuidString] ?? 1
-            counts[key, default: 0] += 1
-        }
-        return counts
-    }
-
-    var canFinishAssignment: Bool {
-        guard hasValidEventName, hasValidPlayerCount else { return false }
-        guard namedPlayers.allSatisfy({ groupByPlayerID[$0.id.uuidString] != nil }) else { return false }
-        return (1...groupCount).allSatisfy { g in
-            let size = groupSizes[g, default: 0]
-            return size >= 2 && size <= 5
-        }
-    }
 
     func addPlayer() {
         players.append(PlayerDraft())
-        syncAssignments()
     }
 
     func removeLastPlayer() {
         guard players.count > 2 else { return }
-        let removed = players.removeLast()
-        groupByPlayerID.removeValue(forKey: removed.id.uuidString)
-        syncAssignments()
+        players.removeLast()
     }
 
-    func assignedGroup(for player: PlayerDraft) -> Int {
-        groupByPlayerID[player.id.uuidString] ?? 1
-    }
-
-    func setGroup(_ group: Int, for player: PlayerDraft) {
-        groupByPlayerID[player.id.uuidString] = group
-    }
-
-    func commit(into session: SessionModel, courseStore: CourseStore) {
-        guard canFinishAssignment else {
-            errorMessage = "Each group must have 2–5 players."
-            return
-        }
-
+    func commitQuickGame(into session: SessionModel, courseStore: CourseStore) -> String {
         let snapshots = namedPlayers.map {
             PlayerSnapshot(
                 id: $0.id.uuidString,
@@ -496,83 +446,40 @@ private final class EventSetupViewModel: ObservableObject {
                 handicapIndex: $0.handicapIndex
             )
         }
-
-        let groups = (1...groupCount).map { index -> EventGroup in
-            let ids = namedPlayers
-                .filter { groupByPlayerID[$0.id.uuidString] == index }
-                .map { $0.id.uuidString }
-            return EventGroup(id: "group-\(index)", name: "Group \(index)", playerIDs: ids)
-        }
-
-        session.startEventSession(
-            name: trimmedEventName,
-            date: eventDate,
-            courseName: courseName.isEmpty ? DemoCourseFactory.name : courseName,
-            holes: holes,
+        let groupID = session.startQuickGame(
             players: snapshots,
-            groups: groups
+            holes: holes,
+            courseName: courseName.isEmpty ? DemoCourseFactory.name : courseName
         )
-
-        // Save course for reuse
         if !courseName.trimmingCharacters(in: .whitespaces).isEmpty {
             let saved = SavedCourse(
-                name: courseName,
-                teeColor: teeBoxName,
-                slope: slope,
-                courseRating: courseRating,
-                holes: holes
+                name: courseName, teeColor: teeBoxName,
+                slope: slope, courseRating: courseRating, holes: holes
             )
             courseStore.save(saved)
         }
-
         errorMessage = nil
-    }
-
-    private func syncAssignments() {
-        let named = namedPlayers
-        let count = max(1, Int(ceil(Double(named.count) / 4.0)))
-        for (index, player) in named.enumerated() {
-            if groupByPlayerID[player.id.uuidString] == nil {
-                groupByPlayerID[player.id.uuidString] = min((index / 4) + 1, max(1, count))
-            }
-        }
-        for player in players where player.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            groupByPlayerID.removeValue(forKey: player.id.uuidString)
-        }
+        return groupID
     }
 }
 
 // MARK: - Setup Flow
 
-private struct EventSetupFlowView: View {
+private struct QuickGameSetupFlowView: View {
     @StateObject private var viewModel = EventSetupViewModel()
-    let onFinish: (EventSession) -> Void
+    @EnvironmentObject private var session: SessionModel
+    @EnvironmentObject private var courseStore: CourseStore
+    let onFinish: (String) -> Void
 
     var body: some View {
-        EventBasicsScreen(viewModel: viewModel, onFinish: onFinish)
-    }
-}
-
-// MARK: - Screen 1: Event Basics
-
-private struct EventBasicsScreen: View {
-    @ObservedObject var viewModel: EventSetupViewModel
-    let onFinish: (EventSession) -> Void
-
-    var body: some View {
-        Form {
-            Section("Event") {
-                TextField("Event name", text: $viewModel.eventName)
-                DatePicker("Date", selection: $viewModel.eventDate, displayedComponents: .date)
+        EventPlayersScreen(
+            viewModel: viewModel,
+            onStartGame: {
+                let groupID = viewModel.commitQuickGame(into: session, courseStore: courseStore)
+                onFinish(groupID)
             }
-            Section {
-                NavigationLink("Next: Players") {
-                    EventPlayersScreen(viewModel: viewModel, onFinish: onFinish)
-                }
-                .disabled(!viewModel.hasValidEventName)
-            }
-        }
-        .navigationTitle("Event")
+        )
+        .navigationTitle("Quick Game")
     }
 }
 
@@ -582,7 +489,7 @@ private struct EventPlayersScreen: View {
     @ObservedObject var viewModel: EventSetupViewModel
     @EnvironmentObject var buddyStore: BuddyStore
     @State private var showBuddies = false
-    let onFinish: (EventSession) -> Void
+    var onStartGame: (() -> Void)? = nil
 
     private var nextEmptyIndex: Int? {
         viewModel.players.indices.first { viewModel.players[$0].name.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -631,6 +538,7 @@ private struct EventPlayersScreen: View {
 
                 HStack {
                     Button("Add Player") { viewModel.addPlayer() }
+                        .disabled(onStartGame != nil && viewModel.players.count >= 4)
                     Spacer()
                     Button("Remove Last") { viewModel.removeLastPlayer() }
                         .disabled(viewModel.players.count <= 2)
@@ -639,11 +547,11 @@ private struct EventPlayersScreen: View {
             }
 
             Section {
-                Text("Add as many players as needed (min 2). Groups of 4 are auto-assigned.")
+                Text(onStartGame != nil ? "2–4 players." : "Add as many players as needed (min 2). Groups of 4 are auto-assigned.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 NavigationLink("Next: Course") {
-                    EventCourseScreen(viewModel: viewModel, onFinish: onFinish)
+                    EventCourseScreen(viewModel: viewModel, onStartGame: onStartGame)
                 }
                 .disabled(!viewModel.hasValidPlayerCount)
             }
@@ -680,8 +588,9 @@ private struct EventPlayersScreen: View {
 private struct EventCourseScreen: View {
     @ObservedObject var viewModel: EventSetupViewModel
     @EnvironmentObject var courseStore: CourseStore
+    @EnvironmentObject var session: SessionModel
     @StateObject private var scanVM = ScanViewModel()
-    let onFinish: (EventSession) -> Void
+    var onStartGame: (() -> Void)? = nil
 
     var body: some View {
         Group {
@@ -896,8 +805,9 @@ private struct EventCourseScreen: View {
                 }
                 .foregroundStyle(.orange)
 
-                NavigationLink("Next: Groups") {
-                    EventGroupAssignmentScreen(viewModel: viewModel, onFinish: onFinish)
+                Button("Start Game") {
+                    syncToViewModel()
+                    onStartGame?()
                 }
                 .disabled(!scanVM.isValid)
             } footer: {
@@ -940,205 +850,3 @@ private struct EventCourseScreen: View {
     }
 }
 
-// MARK: - Screen 4: Group Assignment
-
-private struct EventGroupAssignmentScreen: View {
-    @EnvironmentObject private var session: SessionModel
-    @EnvironmentObject private var courseStore: CourseStore
-    @ObservedObject var viewModel: EventSetupViewModel
-    let onFinish: (EventSession) -> Void
-
-    var body: some View {
-        List {
-            Section("Assign Groups") {
-                ForEach(viewModel.namedPlayers) { player in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(player.name)
-                            Text(String(format: "Index %.1f", player.handicapIndex))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Picker("Group", selection: Binding(
-                            get: { viewModel.assignedGroup(for: player) },
-                            set: { viewModel.setGroup($0, for: player) }
-                        )) {
-                            ForEach(1...viewModel.groupCount, id: \.self) { group in
-                                Text("Group \(group)").tag(group)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                }
-            }
-
-            Section("Group Sizes") {
-                ForEach(1...viewModel.groupCount, id: \.self) { group in
-                    let size = viewModel.groupSizes[group, default: 0]
-                    HStack {
-                        Text("Group \(group)")
-                        Spacer()
-                        Text("\(size) player\(size == 1 ? "" : "s")")
-                            .foregroundStyle(size < 2 || size > 5 ? .red : .secondary)
-                    }
-                }
-            }
-
-            if let message = viewModel.errorMessage {
-                Section {
-                    Text(message).foregroundStyle(.red)
-                }
-            }
-
-            Section {
-                Text("Each group needs 2–5 players.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle("Groups")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Start Event") {
-                    viewModel.commit(into: session, courseStore: courseStore)
-                    if let event = session.activeEventSession {
-                        onFinish(event)
-                    }
-                }
-                .disabled(!viewModel.canFinishAssignment)
-            }
-        }
-    }
-}
-
-// MARK: - Leaderboard
-
-private struct EventLeaderboardView: View {
-    @ObservedObject var session: SessionModel
-
-    var body: some View {
-        Group {
-            if let event = session.activeEventSession {
-                leaderboardContent(event: event)
-            } else {
-                Text("No active event.")
-                    .foregroundStyle(.secondary)
-                    .navigationTitle("Stableford Live")
-            }
-        }
-    }
-
-    private func leaderboardContent(event: EventSession) -> some View {
-        let rows = EventGroupScoringViewModel.leaderboardRows(from: event)
-
-        return List {
-            Section("Event") {
-                LabeledContent("Name", value: event.name)
-                LabeledContent("Date", value: event.date.formatted(date: .abbreviated, time: .omitted))
-                LabeledContent("Course", value: event.courseName)
-                LabeledContent("Thru", value: thruDisplay(from: event))
-            }
-
-            Section("Leaderboard") {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                    let prevRow = index > 0 ? rows[index - 1] : nil
-                    let rank = (prevRow?.totalPoints == row.totalPoints) ? "" : "#\(index + 1)"
-                    let isTied = (prevRow?.totalPoints == row.totalPoints) || (index < rows.count - 1 && rows[index + 1].totalPoints == row.totalPoints)
-
-                    HStack {
-                        Text(rank.isEmpty ? " " : rank)
-                            .frame(width: 32, alignment: .leading)
-                            .font(.body.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row.player.name)
-                                .font(.body)
-                            Text(thruLabel(for: row))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        HStack(spacing: 4) {
-                            if isTied && index > 0 && prevRow?.totalPoints == row.totalPoints {
-                                Text("CB")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.orange)
-                            }
-                            Text("\(row.totalPoints) pts")
-                                .font(.headline)
-                        }
-                    }
-                }
-            }
-
-            Section("Groups") {
-                ForEach(event.groups) { group in
-                    NavigationLink {
-                        EventGroupScoringView(session: session, groupID: group.id)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(group.name)
-                                Text("\(group.playerIDs.count) players")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            let hole = event.currentHoleByGroup[group.id, default: 1]
-                            Text(groupStatusLabel(hole: hole))
-                                .font(.caption)
-                                .foregroundStyle(hole > 18 ? .green : .secondary)
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle("Stableford Live")
-    }
-
-    private func thruDisplay(from event: EventSession) -> String {
-        let thru = EventGroupScoringViewModel.maxCompletedHole(from: event)
-        if thru == 0 { return "Not started" }
-        if thru == 18 { return "F" }
-        return "Thru \(thru)"
-    }
-
-    private func thruLabel(for row: StablefordLeaderboardRow) -> String {
-        if row.thruHole == 0 { return "—" }
-        if row.thruHole == 18 { return "F" }
-        return "Thru \(row.thruHole)"
-    }
-
-    private func groupStatusLabel(hole: Int) -> String {
-        if hole > 18 { return "Complete" }
-        if hole == 1 { return "Not started" }
-        return "Hole \(hole)"
-    }
-}
-
-// MARK: - Active Event Card
-
-private struct ActiveEventCard: View {
-    let event: EventSession
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(event.name)
-                .font(.headline)
-            HStack {
-                Text(event.date, style: .date)
-                Text("·")
-                Text(event.courseName)
-            }
-            .foregroundStyle(.secondary)
-            .font(.subheadline)
-            Text("\(event.players.count) players · \(event.groups.count) group\(event.groups.count == 1 ? "" : "s")")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-    }
-}
