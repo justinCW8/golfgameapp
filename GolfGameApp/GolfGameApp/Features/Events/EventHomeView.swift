@@ -1,13 +1,20 @@
 import SwiftUI
 import Combine
+import UIKit
+import PhotosUI
+
+// MARK: - EventHomeView
 
 struct EventHomeView: View {
     @EnvironmentObject private var session: SessionModel
     @State private var path: [EventRoute] = []
+    @State private var showEndEventConfirmation = false
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(spacing: 16) {
+            VStack(spacing: 20) {
+                Spacer()
+
                 if let active = session.activeEventSession {
                     ActiveEventCard(event: active)
 
@@ -15,20 +22,32 @@ struct EventHomeView: View {
                         path.append(.leaderboard)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
 
                     Button("Create New Event") {
                         path.append(.setup)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
+
+                    Button("End Event") {
+                        showEndEventConfirmation = true
+                    }
+                    .buttonStyle(.bordered)
+                    .foregroundStyle(.red)
+                    .controlSize(.large)
                 } else {
-                    Text("No event configured")
+                    Text("No event in progress.")
                         .foregroundStyle(.secondary)
 
                     Button("Create Event") {
                         path.append(.setup)
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                 }
+
+                Spacer()
             }
             .padding()
             .navigationTitle("Events")
@@ -42,6 +61,14 @@ struct EventHomeView: View {
                     EventLeaderboardView(session: session)
                 }
             }
+            .alert("End Event?", isPresented: $showEndEventConfirmation) {
+                Button("End Event", role: .destructive) {
+                    session.clearActiveEventSession()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This clears the current event and all scores. This cannot be undone.")
+            }
         }
     }
 }
@@ -51,20 +78,356 @@ private enum EventRoute: Hashable {
     case leaderboard
 }
 
+// MARK: - ScanViewModel
+
+@MainActor
+private final class ScanViewModel: ObservableObject {
+    enum Step { case initial, reviewing }
+
+    @Published var step: Step = .initial
+    @Published var scannedData: ScannedCourseData = .empty
+    @Published var courseName: String = ""
+    @Published var teeColor: String = "White"
+    @Published var slopeText: String = ""
+    @Published var ratingText: String = ""
+    @Published var isProcessing: Bool = false
+    @Published var showCamera: Bool = false
+    @Published var photoPickerItem: PhotosPickerItem? = nil
+    @Published var mergePhotoItem: PhotosPickerItem? = nil
+
+    @Published var searchQuery: String = ""
+    @Published var apiResults: [CourseAPIResult] = []
+    @Published var isSearching: Bool = false
+    private var searchTask: Task<Void, Never>? = nil
+    private var apiHolesByTee: [String: [ScannedHole]] = [:]
+
+    private let scanner = ScorecardScanner()
+    private let parser = ScorecardParser()
+    private let courseSearch = CourseSearchService()
+
+    static let teeOptions = ["Blue", "White", "Gold", "Red"]
+
+    var isValid: Bool {
+        let allFilled = scannedData.holes.allSatisfy { $0.par != nil && $0.strokeIndex != nil }
+        let siValues = scannedData.holes.compactMap { $0.strokeIndex }
+        let noDuplicates = siValues.count == Set(siValues).count
+        return allFilled && noDuplicates && !courseName.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var duplicateSI: Set<Int> {
+        let siValues = scannedData.holes.compactMap { $0.strokeIndex }
+        var seen = Set<Int>()
+        var dupes = Set<Int>()
+        for v in siValues { if !seen.insert(v).inserted { dupes.insert(v) } }
+        return dupes
+    }
+
+    var slope: Int? { Int(slopeText) }
+    var courseRating: Double? { Double(ratingText) }
+
+    func processImage(_ image: UIImage) async {
+        apiHolesByTee = [:]
+        isProcessing = true
+        let lines = await scanner.recognizeText(in: image)
+        let parsed = parser.parse(lines)
+        scannedData = parsed
+        applyRatingForCurrentTee(from: parsed)
+        isProcessing = false
+        step = .reviewing
+    }
+
+    func mergeImage(_ image: UIImage) async {
+        isProcessing = true
+        let lines = await scanner.recognizeText(in: image)
+        let parsed = parser.parse(lines)
+        scannedData.merge(parsed)
+        applyRatingForCurrentTee(from: scannedData)
+        isProcessing = false
+    }
+
+    func updateRatingForTee(_ newTee: String) {
+        if let tr = scannedData.teeRatings[newTee] {
+            slopeText = String(tr.slope)
+            ratingText = String(format: "%.1f", tr.rating)
+        }
+        if let holes = apiHolesByTee[newTee] {
+            scannedData.holes = holes
+        }
+    }
+
+    func triggerSearch() {
+        searchTask?.cancel()
+        let query = searchQuery.trimmingCharacters(in: .whitespaces)
+        guard query.count >= 3 else {
+            apiResults = []
+            isSearching = false
+            return
+        }
+        isSearching = true
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            apiResults = (try? await courseSearch.search(query: query)) ?? []
+            isSearching = false
+        }
+    }
+
+    func applyAPIResult(_ result: CourseAPIResult) {
+        apiHolesByTee = result.holesByTee
+        courseName = result.displayName
+        let preferredTees = ["Blue", "White", "Gold", "Red"]
+        let defaultTee = preferredTees.first { result.teeRatings[$0] != nil }
+            ?? result.teeRatings.keys.sorted().first
+            ?? "White"
+        teeColor = defaultTee
+        scannedData = ScannedCourseData(
+            holes: result.holes(forTee: defaultTee),
+            slope: result.teeRatings[defaultTee]?.slope,
+            courseRating: result.teeRatings[defaultTee]?.rating,
+            teeRatings: result.teeRatings
+        )
+        applyRatingForCurrentTee(from: scannedData)
+        apiResults = []
+        searchQuery = ""
+        step = .reviewing
+    }
+
+    private func applyRatingForCurrentTee(from data: ScannedCourseData) {
+        if let tr = data.teeRatings[teeColor] {
+            slopeText = String(tr.slope)
+            ratingText = String(format: "%.1f", tr.rating)
+        } else {
+            slopeText = data.slope.map { String($0) } ?? ""
+            ratingText = data.courseRating.map { String(format: "%.1f", $0) } ?? ""
+        }
+    }
+
+    func setPar(hole: Int, par: Int) {
+        guard let idx = scannedData.holes.firstIndex(where: { $0.number == hole }) else { return }
+        scannedData.holes[idx].par = par
+    }
+
+    func setSI(hole: Int, si: Int) {
+        guard let idx = scannedData.holes.firstIndex(where: { $0.number == hole }) else { return }
+        scannedData.holes[idx].strokeIndex = si
+    }
+
+    func toHoleStubs() -> [CourseHoleStub] {
+        scannedData.holes.map {
+            CourseHoleStub(number: $0.number, par: $0.par ?? 4, strokeIndex: $0.strokeIndex ?? $0.number, yardage: $0.yardage ?? 0)
+        }
+    }
+
+    func applyDemoCourse() {
+        apiHolesByTee = [:]
+        courseName = DemoCourseFactory.name
+        teeColor = "White"
+        slopeText = ""
+        ratingText = ""
+        scannedData = ScannedCourseData(
+            holes: DemoCourseFactory.holes18().map { ScannedHole(number: $0.number, par: $0.par, strokeIndex: $0.strokeIndex, yardage: $0.yardage) },
+            slope: nil,
+            courseRating: nil
+        )
+        step = .reviewing
+    }
+}
+
+// MARK: - ImagePicker
+
+private struct ImagePicker: UIViewControllerRepresentable {
+    let sourceType: UIImagePickerController.SourceType
+    let onPick: (UIImage) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = sourceType
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let onPick: (UIImage) -> Void
+        init(onPick: @escaping (UIImage) -> Void) { self.onPick = onPick }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { onPick(image) }
+            picker.dismiss(animated: true)
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
+        }
+    }
+}
+
+// MARK: - HoleReviewRow
+
+private struct HoleReviewRow: View {
+    let hole: ScannedHole
+    let isDuplicateSI: Bool
+    let onParChange: (Int) -> Void
+    let onSIChange: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("\(hole.number)")
+                .frame(width: 36, alignment: .center)
+                .foregroundStyle(.secondary)
+
+            Stepper(value: Binding(
+                get: { hole.par ?? 4 },
+                set: { onParChange($0) }
+            ), in: 3...5) {
+                Text(hole.par.map { "\($0)" } ?? "–")
+                    .frame(width: 28, alignment: .center)
+                    .foregroundStyle(hole.par == nil ? .orange : .primary)
+            }
+            .frame(width: 110)
+
+            Stepper(value: Binding(
+                get: { hole.strokeIndex ?? 1 },
+                set: { onSIChange($0) }
+            ), in: 1...18) {
+                Text(hole.strokeIndex.map { "\($0)" } ?? "–")
+                    .frame(width: 28, alignment: .center)
+                    .foregroundStyle(
+                        isDuplicateSI ? .red :
+                        hole.strokeIndex == nil ? .orange : .primary
+                    )
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+// MARK: - BuddiesSheet
+
+private struct BuddiesSheet: View {
+    @ObservedObject var buddyStore: BuddyStore
+    let onSelect: (Buddy) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var pendingBuddy: Buddy? = nil
+    @State private var updatedHIText: String = ""
+    @State private var showHIUpdate = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if buddyStore.buddies.isEmpty {
+                    ContentUnavailableView(
+                        "No Buddies Saved",
+                        systemImage: "person.2",
+                        description: Text("Enter players and tap the bookmark icon to save them here.")
+                    )
+                } else {
+                    List {
+                        ForEach(buddyStore.buddies) { buddy in
+                            Button {
+                                if buddy.needsHIConfirmation {
+                                    pendingBuddy = buddy
+                                    updatedHIText = String(format: "%.1f", buddy.handicapIndex)
+                                } else {
+                                    onSelect(buddy)
+                                }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(buddy.name)
+                                            .foregroundStyle(.primary)
+                                        HStack(spacing: 4) {
+                                            Text(String(format: "Index %.1f", buddy.handicapIndex))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            if buddy.needsHIConfirmation {
+                                                Image(systemName: "exclamationmark.circle.fill")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.orange)
+                                            }
+                                        }
+                                    }
+                                    Spacer()
+                                    Image(systemName: "plus.circle")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                        .onDelete { buddyStore.remove(at: $0) }
+                    }
+                }
+            }
+            .navigationTitle("Saved Buddies")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .alert(
+                pendingBuddy.map { "Still Index \(String(format: "%.1f", $0.handicapIndex)), \($0.name)?" } ?? "",
+                isPresented: Binding(get: { pendingBuddy != nil && !showHIUpdate },
+                                     set: { if !$0 { pendingBuddy = nil } })
+            ) {
+                Button("Yes, same HI") {
+                    if let b = pendingBuddy {
+                        buddyStore.confirmHI(id: b.id)
+                        onSelect(b)
+                    }
+                    pendingBuddy = nil
+                }
+                Button("Update HI") { showHIUpdate = true }
+                Button("Cancel", role: .cancel) { pendingBuddy = nil }
+            } message: {
+                Text("It's been a while — confirm or update before adding to this event.")
+            }
+            .alert(
+                "Update Index for \(pendingBuddy?.name ?? "")",
+                isPresented: $showHIUpdate
+            ) {
+                TextField("New Index (e.g. 8.4)", text: $updatedHIText)
+                    .keyboardType(.decimalPad)
+                Button("Save & Add") {
+                    if let b = pendingBuddy, let newHI = Double(updatedHIText) {
+                        buddyStore.updateHI(id: b.id, to: newHI)
+                        if let updated = buddyStore.buddies.first(where: { $0.id == b.id }) {
+                            onSelect(updated)
+                        }
+                    }
+                    pendingBuddy = nil
+                    showHIUpdate = false
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingBuddy = nil
+                    showHIUpdate = false
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+// MARK: - EventSetupViewModel
+
 @MainActor
 private final class EventSetupViewModel: ObservableObject {
     @Published var eventName: String = ""
     @Published var eventDate: Date = Date()
-    @Published var courseName: String = DemoCourseFactory.name
-    @Published var players: [PlayerDraft] = (1...8).map {
-        PlayerDraft(name: "Player \($0)", handicapIndex: 0)
-    }
+    @Published var players: [PlayerDraft] = (1...4).map { _ in PlayerDraft() }
     @Published var groupByPlayerID: [String: Int] = [:]
     @Published var errorMessage: String?
 
-    init() {
-        syncAssignments()
-    }
+    // Course data — populated by EventCourseScreen
+    @Published var courseName: String = ""
+    @Published var teeBoxName: String = "White"
+    @Published var holes: [CourseHoleStub] = DemoCourseFactory.holes18()
+    @Published var slope: Int? = nil
+    @Published var courseRating: Double? = nil
+
+    init() { syncAssignments() }
 
     var trimmedEventName: String {
         eventName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,17 +437,12 @@ private final class EventSetupViewModel: ObservableObject {
         players.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
-    var hasValidEventName: Bool {
-        !trimmedEventName.isEmpty
-    }
+    var hasValidEventName: Bool { !trimmedEventName.isEmpty }
 
-    var hasValidPlayerCount: Bool {
-        let count = namedPlayers.count
-        return count >= 4 && count % 4 == 0
-    }
+    var hasValidPlayerCount: Bool { namedPlayers.count >= 2 }
 
     var groupCount: Int {
-        max(1, namedPlayers.count / 4)
+        max(1, Int(ceil(Double(namedPlayers.count) / 4.0)))
     }
 
     var groupSizes: [Int: Int] {
@@ -99,18 +457,19 @@ private final class EventSetupViewModel: ObservableObject {
     var canFinishAssignment: Bool {
         guard hasValidEventName, hasValidPlayerCount else { return false }
         guard namedPlayers.allSatisfy({ groupByPlayerID[$0.id.uuidString] != nil }) else { return false }
-
-        let expectedSize = namedPlayers.count / groupCount
-        return (1...groupCount).allSatisfy { groupSizes[$0, default: 0] == expectedSize }
+        return (1...groupCount).allSatisfy { g in
+            let size = groupSizes[g, default: 0]
+            return size >= 2 && size <= 5
+        }
     }
 
     func addPlayer() {
-        players.append(PlayerDraft(name: "", handicapIndex: 0))
+        players.append(PlayerDraft())
         syncAssignments()
     }
 
     func removeLastPlayer() {
-        guard players.count > 4 else { return }
+        guard players.count > 2 else { return }
         let removed = players.removeLast()
         groupByPlayerID.removeValue(forKey: removed.id.uuidString)
         syncAssignments()
@@ -124,9 +483,9 @@ private final class EventSetupViewModel: ObservableObject {
         groupByPlayerID[player.id.uuidString] = group
     }
 
-    func commit(into session: SessionModel) {
+    func commit(into session: SessionModel, courseStore: CourseStore) {
         guard canFinishAssignment else {
-            errorMessage = "Each group must have the same number of players."
+            errorMessage = "Each group must have 2–5 players."
             return
         }
 
@@ -138,7 +497,7 @@ private final class EventSetupViewModel: ObservableObject {
             )
         }
 
-        let groups = (1...groupCount).map { index in
+        let groups = (1...groupCount).map { index -> EventGroup in
             let ids = namedPlayers
                 .filter { groupByPlayerID[$0.id.uuidString] == index }
                 .map { $0.id.uuidString }
@@ -148,30 +507,42 @@ private final class EventSetupViewModel: ObservableObject {
         session.startEventSession(
             name: trimmedEventName,
             date: eventDate,
-            courseName: courseName,
-            holes: DemoCourseFactory.holes18(),
+            courseName: courseName.isEmpty ? DemoCourseFactory.name : courseName,
+            holes: holes,
             players: snapshots,
             groups: groups
         )
+
+        // Save course for reuse
+        if !courseName.trimmingCharacters(in: .whitespaces).isEmpty {
+            let saved = SavedCourse(
+                name: courseName,
+                teeColor: teeBoxName,
+                slope: slope,
+                courseRating: courseRating,
+                holes: holes
+            )
+            courseStore.save(saved)
+        }
 
         errorMessage = nil
     }
 
     private func syncAssignments() {
         let named = namedPlayers
-        let count = max(1, named.count / 4)
-
+        let count = max(1, Int(ceil(Double(named.count) / 4.0)))
         for (index, player) in named.enumerated() {
             if groupByPlayerID[player.id.uuidString] == nil {
                 groupByPlayerID[player.id.uuidString] = min((index / 4) + 1, max(1, count))
             }
         }
-
         for player in players where player.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             groupByPlayerID.removeValue(forKey: player.id.uuidString)
         }
     }
 }
+
+// MARK: - Setup Flow
 
 private struct EventSetupFlowView: View {
     @StateObject private var viewModel = EventSetupViewModel()
@@ -181,6 +552,8 @@ private struct EventSetupFlowView: View {
         EventBasicsScreen(viewModel: viewModel, onFinish: onFinish)
     }
 }
+
+// MARK: - Screen 1: Event Basics
 
 private struct EventBasicsScreen: View {
     @ObservedObject var viewModel: EventSetupViewModel
@@ -192,14 +565,6 @@ private struct EventBasicsScreen: View {
                 TextField("Event name", text: $viewModel.eventName)
                 DatePicker("Date", selection: $viewModel.eventDate, displayedComponents: .date)
             }
-
-            Section("Course") {
-                Text(viewModel.courseName)
-                Text("Demo course is used until course lookup is implemented.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section {
                 NavigationLink("Next: Players") {
                     EventPlayersScreen(viewModel: viewModel, onFinish: onFinish)
@@ -207,60 +572,379 @@ private struct EventBasicsScreen: View {
                 .disabled(!viewModel.hasValidEventName)
             }
         }
-        .navigationTitle("Create Event")
+        .navigationTitle("Event")
     }
 }
 
+// MARK: - Screen 2: Players
+
 private struct EventPlayersScreen: View {
     @ObservedObject var viewModel: EventSetupViewModel
+    @EnvironmentObject var buddyStore: BuddyStore
+    @State private var showBuddies = false
     let onFinish: (EventSession) -> Void
+
+    private var nextEmptyIndex: Int? {
+        viewModel.players.indices.first { viewModel.players[$0].name.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
 
     var body: some View {
         Form {
             Section("Players") {
-                ForEach($viewModel.players) { $player in
-                    VStack(alignment: .leading, spacing: 6) {
-                        TextField("Player name", text: $player.name)
-                        HStack {
-                            Text("Index")
-                            Spacer()
-                            TextField("0.0", value: $player.handicapIndex, format: .number.precision(.fractionLength(1)))
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(maxWidth: 100)
+                ForEach(viewModel.players.indices, id: \.self) { index in
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading) {
+                            TextField("Player \(index + 1) name", text: $viewModel.players[index].name)
+                            HStack {
+                                Text("Index")
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                                TextField("0.0", value: $viewModel.players[index].handicapIndex, format: .number.precision(.fractionLength(1)))
+                                    .keyboardType(.decimalPad)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: 50)
+                            }
+                        }
+                        Spacer()
+                        let name = viewModel.players[index].name.trimmingCharacters(in: .whitespaces)
+                        if !name.isEmpty {
+                            Button {
+                                buddyStore.add(name: name, handicapIndex: viewModel.players[index].handicapIndex)
+                            } label: {
+                                Image(systemName: buddyStore.buddies.contains(where: { $0.name.lowercased() == name.lowercased() }) ? "bookmark.fill" : "bookmark")
+                                    .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            viewModel.players[index].name = ""
+                            viewModel.players[index].handicapIndex = 0.0
+                        } label: {
+                            Label("Clear", systemImage: "xmark")
+                        }
+                    }
                 }
 
                 HStack {
-                    Button("Add Player") {
-                        viewModel.addPlayer()
-                    }
+                    Button("Add Player") { viewModel.addPlayer() }
                     Spacer()
-                    Button("Remove Last") {
-                        viewModel.removeLastPlayer()
-                    }
-                    .disabled(viewModel.players.count <= 4)
+                    Button("Remove Last") { viewModel.removeLastPlayer() }
+                        .disabled(viewModel.players.count <= 2)
+                        .foregroundStyle(.red)
                 }
             }
 
             Section {
-                Text("Use 4, 8, 12... named players for equal groups of 4.")
+                Text("Add as many players as needed (min 2). Groups of 4 are auto-assigned.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                NavigationLink("Next: Groups") {
-                    EventGroupAssignmentScreen(viewModel: viewModel, onFinish: onFinish)
+                NavigationLink("Next: Course") {
+                    EventCourseScreen(viewModel: viewModel, onFinish: onFinish)
                 }
                 .disabled(!viewModel.hasValidPlayerCount)
             }
         }
         .navigationTitle("Players")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showBuddies = true
+                } label: {
+                    Label("Buddies", systemImage: "person.2.fill")
+                }
+                .sheet(isPresented: $showBuddies) {
+                    BuddiesSheet(
+                        buddyStore: buddyStore,
+                        onSelect: { buddy in
+                            if let idx = nextEmptyIndex {
+                                viewModel.players[idx].name = buddy.name
+                                viewModel.players[idx].handicapIndex = buddy.handicapIndex
+                            } else {
+                                viewModel.players.append(PlayerDraft(name: buddy.name, handicapIndex: buddy.handicapIndex))
+                            }
+                            if nextEmptyIndex == nil { showBuddies = false }
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
+// MARK: - Screen 3: Course
+
+private struct EventCourseScreen: View {
+    @ObservedObject var viewModel: EventSetupViewModel
+    @EnvironmentObject var courseStore: CourseStore
+    @StateObject private var scanVM = ScanViewModel()
+    let onFinish: (EventSession) -> Void
+
+    var body: some View {
+        Group {
+            if scanVM.step == .initial {
+                initialView
+            } else {
+                reviewView
+            }
+        }
+        .navigationTitle("Course")
+        .sheet(isPresented: $scanVM.showCamera) {
+            ImagePicker(sourceType: .camera) { image in
+                scanVM.showCamera = false
+                Task { await scanVM.processImage(image) }
+            }
+        }
+        .onChange(of: scanVM.photoPickerItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await scanVM.processImage(image)
+                }
+                scanVM.photoPickerItem = nil
+            }
+        }
+        .onChange(of: scanVM.mergePhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await scanVM.mergeImage(image)
+                }
+                scanVM.mergePhotoItem = nil
+            }
+        }
+        .overlay {
+            if scanVM.isProcessing {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.4)
+                            .tint(.white)
+                        Text("Reading scorecard...")
+                            .foregroundStyle(.white)
+                            .font(.subheadline)
+                    }
+                    .padding(24)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+        }
+    }
+
+    // MARK: Initial
+
+    private var initialView: some View {
+        Form {
+            Section {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search course name…", text: $scanVM.searchQuery)
+                        .autocorrectionDisabled()
+                        .onChange(of: scanVM.searchQuery) { _, _ in scanVM.triggerSearch() }
+                    if scanVM.isSearching {
+                        ProgressView().scaleEffect(0.75)
+                    } else if !scanVM.searchQuery.isEmpty {
+                        Button { scanVM.searchQuery = ""; scanVM.apiResults = [] } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } footer: {
+                Text("Type at least 3 characters to search ~30,000 courses.")
+                    .font(.caption)
+            }
+
+            if !scanVM.apiResults.isEmpty {
+                Section("Results") {
+                    ForEach(scanVM.apiResults) { result in
+                        Button { scanVM.applyAPIResult(result) } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(result.displayName).foregroundStyle(.primary)
+                                Text(result.location)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+            }
+
+            if !courseStore.courses.isEmpty {
+                Section {
+                    ForEach(courseStore.courses) { saved in
+                        Button { applySaved(saved) } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(saved.name).foregroundStyle(.primary)
+                                    Text("\(saved.teeColor) tee" + (saved.slope.map { " · Slope \($0)" } ?? ""))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                    .onDelete { courseStore.remove(at: $0) }
+                } header: {
+                    Text("Saved Courses")
+                } footer: {
+                    Text("Tap to use · Swipe to delete").font(.caption)
+                }
+            }
+
+            Section {
+                PhotosPicker(selection: $scanVM.photoPickerItem, matching: .images) {
+                    Label("Scan Scorecard from Photos", systemImage: "photo.on.rectangle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 8, leading: 0, bottom: 4, trailing: 0))
+
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button { scanVM.showCamera = true } label: {
+                        Label("Use Camera", systemImage: "camera.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(.init(top: 4, leading: 0, bottom: 8, trailing: 0))
+                }
+            } header: {
+                Text("Scan Scorecard")
+            } footer: {
+                Text("Use when the course isn't found in search.").font(.caption)
+            }
+
+            Section {
+                Button("Use Demo Course (Dev)") { scanVM.applyDemoCourse() }
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: Review
+
+    private var reviewView: some View {
+        Form {
+            Section("Course Info") {
+                TextField("Course Name", text: $scanVM.courseName)
+                Picker("Tee", selection: $scanVM.teeColor) {
+                    ForEach(ScanViewModel.teeOptions, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                HStack {
+                    Text("Slope").foregroundStyle(.secondary)
+                    TextField("—", text: $scanVM.slopeText)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                }
+                HStack {
+                    Text("Rating").foregroundStyle(.secondary)
+                    TextField("—", text: $scanVM.ratingText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+
+            Section {
+                HStack {
+                    Text("Hole").frame(width: 36, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Par").frame(width: 44, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Stroke Index").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                ForEach(scanVM.scannedData.holes, id: \.number) { hole in
+                    HoleReviewRow(
+                        hole: hole,
+                        isDuplicateSI: scanVM.duplicateSI.contains(hole.strokeIndex ?? -1),
+                        onParChange: { scanVM.setPar(hole: hole.number, par: $0) },
+                        onSIChange: { scanVM.setSI(hole: hole.number, si: $0) }
+                    )
+                }
+            } header: {
+                Text("Hole Data")
+            } footer: {
+                if !scanVM.duplicateSI.isEmpty {
+                    Text("Duplicate stroke indexes detected (shown in red). Each SI must be unique.")
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            }
+
+            Section {
+                PhotosPicker(selection: $scanVM.mergePhotoItem, matching: .images) {
+                    Label("Scan Another Page", systemImage: "doc.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
+
+                Button("Rescan (Start Over)") {
+                    scanVM.step = .initial
+                }
+                .foregroundStyle(.orange)
+
+                NavigationLink("Next: Groups") {
+                    EventGroupAssignmentScreen(viewModel: viewModel, onFinish: onFinish)
+                }
+                .disabled(!scanVM.isValid)
+            } footer: {
+                let missingPar = scanVM.scannedData.holes.filter { $0.par == nil }.count
+                let missingSI = scanVM.scannedData.holes.filter { $0.strokeIndex == nil }.count
+                if missingPar > 0 || missingSI > 0 {
+                    Text("Missing data on \(max(missingPar, missingSI)) hole(s). Scan the front of the card to import par and stroke index.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+        .onChange(of: scanVM.teeColor) { _, newTee in
+            scanVM.updateRatingForTee(newTee)
+        }
+        .onChange(of: scanVM.step) { _, _ in syncToViewModel() }
+        .onAppear { syncToViewModel() }
+    }
+
+    private func syncToViewModel() {
+        guard scanVM.isValid else { return }
+        viewModel.courseName = scanVM.courseName
+        viewModel.teeBoxName = scanVM.teeColor
+        viewModel.holes = scanVM.toHoleStubs()
+        viewModel.slope = scanVM.slope
+        viewModel.courseRating = scanVM.courseRating
+    }
+
+    private func applySaved(_ saved: SavedCourse) {
+        scanVM.courseName = saved.name
+        scanVM.teeColor = saved.teeColor
+        scanVM.slopeText = saved.slope.map { String($0) } ?? ""
+        scanVM.ratingText = saved.courseRating.map { String(format: "%.1f", $0) } ?? ""
+        scanVM.scannedData = ScannedCourseData(
+            holes: saved.holes.map { ScannedHole(number: $0.number, par: $0.par, strokeIndex: $0.strokeIndex, yardage: $0.yardage) },
+            slope: saved.slope,
+            courseRating: saved.courseRating
+        )
+        scanVM.step = .reviewing
+    }
+}
+
+// MARK: - Screen 4: Group Assignment
+
 private struct EventGroupAssignmentScreen: View {
     @EnvironmentObject private var session: SessionModel
+    @EnvironmentObject private var courseStore: CourseStore
     @ObservedObject var viewModel: EventSetupViewModel
     let onFinish: (EventSession) -> Void
 
@@ -269,7 +953,7 @@ private struct EventGroupAssignmentScreen: View {
             Section("Assign Groups") {
                 ForEach(viewModel.namedPlayers) { player in
                     HStack {
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(player.name)
                             Text(String(format: "Index %.1f", player.handicapIndex))
                                 .font(.caption)
@@ -289,29 +973,35 @@ private struct EventGroupAssignmentScreen: View {
                 }
             }
 
-            Section("Group Counts") {
+            Section("Group Sizes") {
                 ForEach(1...viewModel.groupCount, id: \.self) { group in
+                    let size = viewModel.groupSizes[group, default: 0]
                     HStack {
                         Text("Group \(group)")
                         Spacer()
-                        Text("\(viewModel.groupSizes[group, default: 0]) players")
-                            .foregroundStyle(.secondary)
+                        Text("\(size) player\(size == 1 ? "" : "s")")
+                            .foregroundStyle(size < 2 || size > 5 ? .red : .secondary)
                     }
                 }
             }
 
             if let message = viewModel.errorMessage {
                 Section {
-                    Text(message)
-                        .foregroundStyle(.red)
+                    Text(message).foregroundStyle(.red)
                 }
+            }
+
+            Section {
+                Text("Each group needs 2–5 players.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Groups")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Finish") {
-                    viewModel.commit(into: session)
+                Button("Start Event") {
+                    viewModel.commit(into: session, courseStore: courseStore)
                     if let event = session.activeEventSession {
                         onFinish(event)
                     }
@@ -322,171 +1012,112 @@ private struct EventGroupAssignmentScreen: View {
     }
 }
 
+// MARK: - Leaderboard
+
 private struct EventLeaderboardView: View {
     @ObservedObject var session: SessionModel
 
     var body: some View {
         Group {
             if let event = session.activeEventSession {
-                List {
-                    Section("Event") {
-                        Text(event.name)
-                            .font(.headline)
-                        Text(event.date, style: .date)
-                            .foregroundStyle(.secondary)
-                        Text(event.courseName)
-                            .foregroundStyle(.secondary)
-                        Text("Thru \(EventGroupScoringViewModel.maxCompletedHole(from: event))")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section("Leaderboard") {
-                        ForEach(Array(EventGroupScoringViewModel.leaderboardRows(from: event).enumerated()), id: \.element.id) { index, row in
-                            HStack {
-                                Text("#\(index + 1)")
-                                    .frame(width: 32, alignment: .leading)
-                                VStack(alignment: .leading) {
-                                    Text(row.player.name)
-                                    Text("Thru \(row.thruHole)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text("\(row.totalPoints) pts")
-                                    .font(.headline)
-                            }
-                        }
-                    }
-
-                    Section("Groups") {
-                        ForEach(event.groups) { group in
-                            NavigationLink {
-                                EventGroupScoringView(session: session, groupID: group.id)
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(group.name)
-                                        Text("\(group.playerIDs.count) players")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    let hole = event.currentHoleByGroup[group.id, default: 1]
-                                    Text(hole > 18 ? "Complete" : "Hole \(hole)")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                }
-                .navigationTitle("Stableford Live")
+                leaderboardContent(event: event)
             } else {
-                Text("No active event")
+                Text("No active event.")
                     .foregroundStyle(.secondary)
                     .navigationTitle("Stableford Live")
             }
         }
     }
-}
 
-private struct EventGroupScoringView: View {
-    @StateObject private var viewModel: EventGroupScoringViewModel
+    private func leaderboardContent(event: EventSession) -> some View {
+        let rows = EventGroupScoringViewModel.leaderboardRows(from: event)
 
-    init(session: SessionModel, groupID: String) {
-        _viewModel = StateObject(wrappedValue: EventGroupScoringViewModel(sessionStore: session, groupID: groupID))
-    }
+        return List {
+            Section("Event") {
+                LabeledContent("Name", value: event.name)
+                LabeledContent("Date", value: event.date.formatted(date: .abbreviated, time: .omitted))
+                LabeledContent("Course", value: event.courseName)
+                LabeledContent("Thru", value: thruDisplay(from: event))
+            }
 
-    var body: some View {
-        Form {
-            Section("Group") {
-                Text(viewModel.groupName)
-                    .font(.headline)
-                if viewModel.isComplete {
-                    Text("All holes completed.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Hole \(viewModel.currentHole) • Par \(viewModel.currentPar) • SI \(viewModel.currentStrokeIndex)")
-                        .foregroundStyle(.secondary)
+            Section("Leaderboard") {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    let prevRow = index > 0 ? rows[index - 1] : nil
+                    let rank = (prevRow?.totalPoints == row.totalPoints) ? "" : "#\(index + 1)"
+                    let isTied = (prevRow?.totalPoints == row.totalPoints) || (index < rows.count - 1 && rows[index + 1].totalPoints == row.totalPoints)
+
+                    HStack {
+                        Text(rank.isEmpty ? " " : rank)
+                            .frame(width: 32, alignment: .leading)
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.player.name)
+                                .font(.body)
+                            Text(thruLabel(for: row))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        HStack(spacing: 4) {
+                            if isTied && index > 0 && prevRow?.totalPoints == row.totalPoints {
+                                Text("CB")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.orange)
+                            }
+                            Text("\(row.totalPoints) pts")
+                                .font(.headline)
+                        }
+                    }
                 }
             }
 
-            if !viewModel.isComplete {
-                Section("Player Gross Entry") {
-                    ForEach(viewModel.groupPlayers) { player in
+            Section("Groups") {
+                ForEach(event.groups) { group in
+                    NavigationLink {
+                        EventGroupScoringView(session: session, groupID: group.id)
+                    } label: {
                         HStack {
-                            VStack(alignment: .leading) {
-                                Text(player.name)
-                                Text(String(format: "Index %.1f", player.handicapIndex))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(group.name)
+                                Text("\(group.playerIDs.count) players")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            TextField(
-                                "Gross",
-                                text: Binding(
-                                    get: { viewModel.grossText(for: player.id) },
-                                    set: { viewModel.setGrossText($0, for: player.id) }
-                                )
-                            )
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 70)
-                        }
-
-                        HStack {
-                            Text("Net")
-                            Spacer()
-                            Text(viewModel.netPreview(for: player))
-                        }
-                        HStack {
-                            Text("Stableford")
-                            Spacer()
-                            Text(viewModel.pointsPreview(for: player))
-                        }
-                    }
-                }
-
-                Section {
-                    Button("Score Hole") {
-                        viewModel.scoreHole()
-                    }
-                    .disabled(!viewModel.canScore)
-                }
-            }
-
-            if !viewModel.lastScoredResults.isEmpty {
-                Section("Last Scored Hole") {
-                    ForEach(viewModel.lastScoredResults) { result in
-                        VStack(alignment: .leading) {
-                            Text("Player ID: \(result.playerID)")
+                            let hole = event.currentHoleByGroup[group.id, default: 1]
+                            Text(groupStatusLabel(hole: hole))
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("Gross \(result.gross), Net \(result.net), Points \(result.points)")
+                                .foregroundStyle(hole > 18 ? .green : .secondary)
                         }
                     }
                 }
             }
-
-            if let info = viewModel.infoMessage {
-                Section {
-                    Text(info)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if let error = viewModel.errorMessage {
-                Section {
-                    Text(error)
-                        .foregroundStyle(.red)
-                }
-            }
         }
-        .navigationTitle(viewModel.groupName)
-        .onAppear {
-            viewModel.seedInputs()
-        }
+        .navigationTitle("Stableford Live")
+    }
+
+    private func thruDisplay(from event: EventSession) -> String {
+        let thru = EventGroupScoringViewModel.maxCompletedHole(from: event)
+        if thru == 0 { return "Not started" }
+        if thru == 18 { return "F" }
+        return "Thru \(thru)"
+    }
+
+    private func thruLabel(for row: StablefordLeaderboardRow) -> String {
+        if row.thruHole == 0 { return "—" }
+        if row.thruHole == 18 { return "F" }
+        return "Thru \(row.thruHole)"
+    }
+
+    private func groupStatusLabel(hole: Int) -> String {
+        if hole > 18 { return "Complete" }
+        if hole == 1 { return "Not started" }
+        return "Hole \(hole)"
     }
 }
+
+// MARK: - Active Event Card
 
 private struct ActiveEventCard: View {
     let event: EventSession
@@ -495,15 +1126,19 @@ private struct ActiveEventCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(event.name)
                 .font(.headline)
-            Text(event.date, style: .date)
-                .foregroundStyle(.secondary)
-            Text(event.courseName)
-                .foregroundStyle(.secondary)
-            Text("Players: \(event.players.count) • Groups: \(event.groups.count)")
+            HStack {
+                Text(event.date, style: .date)
+                Text("·")
+                Text(event.courseName)
+            }
+            .foregroundStyle(.secondary)
+            .font(.subheadline)
+            Text("\(event.players.count) players · \(event.groups.count) group\(event.groups.count == 1 ? "" : "s")")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
 }

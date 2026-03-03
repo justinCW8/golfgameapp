@@ -489,6 +489,11 @@ final class AppSessionStore: ObservableObject {
         persist()
     }
 
+    func clearActiveEventSession() {
+        activeEventSession = nil
+        persist()
+    }
+
     func persistSelections() {
         persist()
     }
