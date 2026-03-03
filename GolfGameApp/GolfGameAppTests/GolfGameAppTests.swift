@@ -10,7 +10,7 @@ import Testing
 
 struct GolfGameAppTests {
 
-    @Test func tieWipesOutBucket() async throws {
+    @Test func tieWipesOutBucket() throws {
         var engine = SixPointScotchEngine()
         let output = try engine.scoreHole(
             .init(
@@ -24,9 +24,7 @@ struct GolfGameAppTests {
                 teamBProxFeet: nil,
                 requestPressBy: nil,
                 requestRollBy: nil,
-                requestRerollBy: nil,
-                leaderTeedOff: false,
-                trailerTeedOff: false
+                requestRerollBy: nil
             )
         )
 
@@ -34,7 +32,7 @@ struct GolfGameAppTests {
         #expect(output.rawTeamBPoints == 0)
     }
 
-    @Test func umbrellaDoublesToTwelveRaw() async throws {
+    @Test func umbrellaDoublesToTwelveRaw() throws {
         var engine = SixPointScotchEngine()
         let output = try engine.scoreHole(
             .init(
@@ -48,9 +46,7 @@ struct GolfGameAppTests {
                 teamBProxFeet: 20,
                 requestPressBy: nil,
                 requestRollBy: nil,
-                requestRerollBy: nil,
-                leaderTeedOff: false,
-                trailerTeedOff: false
+                requestRerollBy: nil
             )
         )
 
@@ -58,7 +54,7 @@ struct GolfGameAppTests {
         #expect(output.multipliedTeamAPoints == 12)
     }
 
-    @Test func pressMaximumTwoPerNine() async throws {
+    @Test func pressMaximumTwoPerNine() throws {
         var engine = SixPointScotchEngine()
 
         _ = try engine.scoreHole(trailingHole(hole: 1))
@@ -73,7 +69,7 @@ struct GolfGameAppTests {
         }
     }
 
-    @Test func pressEligibilityEnforcedForTrailingTeam() async throws {
+    @Test func pressEligibilityEnforcedForTrailingTeam() throws {
         var engine = SixPointScotchEngine()
         _ = try engine.scoreHole(trailingHole(hole: 1))
 
@@ -85,7 +81,7 @@ struct GolfGameAppTests {
         }
     }
 
-    @Test func rollAndRerollStackMultiplier() async throws {
+    @Test func rollAndRerollStackMultiplier() throws {
         var engine = SixPointScotchEngine()
         _ = try engine.scoreHole(trailingHole(hole: 1))
         _ = try engine.scoreHole(trailingHole(hole: 2, requestPressBy: .teamA))
@@ -103,9 +99,7 @@ struct GolfGameAppTests {
                 teamBProxFeet: nil,
                 requestPressBy: nil,
                 requestRollBy: .teamA,
-                requestRerollBy: .teamB,
-                leaderTeedOff: true,
-                trailerTeedOff: false
+                requestRerollBy: .teamB
             )
         )
 
@@ -114,7 +108,7 @@ struct GolfGameAppTests {
         #expect(output.multipliedTeamBPoints == 80)
     }
 
-    @Test func naturalBirdieUsesParReference() async throws {
+    @Test func naturalBirdieUsesParReference() throws {
         var engine = SixPointScotchEngine()
         let output = try engine.scoreHole(
             .init(
@@ -128,9 +122,7 @@ struct GolfGameAppTests {
                 teamBProxFeet: nil,
                 requestPressBy: nil,
                 requestRollBy: nil,
-                requestRerollBy: nil,
-                leaderTeedOff: false,
-                trailerTeedOff: false
+                requestRerollBy: nil
             )
         )
 
@@ -138,7 +130,7 @@ struct GolfGameAppTests {
         #expect(output.rawTeamBPoints == 0)
     }
 
-    @Test func pressAppliesStartingOnCurrentHole() async throws {
+    @Test func pressAppliesStartingOnCurrentHole() throws {
         var engine = SixPointScotchEngine()
         for hole in 1...6 {
             _ = try engine.scoreHole(trailingHole(hole: hole))
@@ -152,7 +144,7 @@ struct GolfGameAppTests {
         #expect(output.multipliedTeamBPoints == 8)
     }
 
-    @Test func rerollRequiresRoll() async throws {
+    @Test func rerollRequiresRoll() throws {
         var engine = SixPointScotchEngine()
 
         do {
@@ -168,9 +160,7 @@ struct GolfGameAppTests {
                     teamBProxFeet: nil,
                     requestPressBy: nil,
                     requestRollBy: nil,
-                    requestRerollBy: .teamA,
-                    leaderTeedOff: true,
-                    trailerTeedOff: false
+                    requestRerollBy: .teamA
                 )
             )
             #expect(Bool(false), "Expected rerollRequiresRoll")
@@ -179,10 +169,12 @@ struct GolfGameAppTests {
         }
     }
 
-    @Test func rollWindowValidation() async throws {
+    @Test func rollRequiresTrailingTeam() throws {
         var engine = SixPointScotchEngine()
+        // After hole 1, B leads (A is trailing)
         _ = try engine.scoreHole(trailingHole(hole: 1))
 
+        // B is leading — B cannot roll
         do {
             _ = try engine.scoreHole(
                 .init(
@@ -195,42 +187,17 @@ struct GolfGameAppTests {
                     teamAProxFeet: nil,
                     teamBProxFeet: nil,
                     requestPressBy: nil,
-                    requestRollBy: .teamA,
-                    requestRerollBy: nil,
-                    leaderTeedOff: false,
-                    trailerTeedOff: false
+                    requestRollBy: .teamB,
+                    requestRerollBy: nil
                 )
             )
-            #expect(Bool(false), "Expected rollWindowInvalid (leader has not teed off)")
+            #expect(Bool(false), "Expected rollRequiresTrailingTeam")
         } catch let error as SixPointScotchActionError {
-            #expect(error == .rollWindowInvalid)
-        }
-
-        do {
-            _ = try engine.scoreHole(
-                .init(
-                    holeNumber: 2,
-                    par: 4,
-                    teamANetScores: [5, 5],
-                    teamBNetScores: [4, 4],
-                    teamAGrossScores: [5, 5],
-                    teamBGrossScores: [4, 4],
-                    teamAProxFeet: nil,
-                    teamBProxFeet: nil,
-                    requestPressBy: nil,
-                    requestRollBy: .teamA,
-                    requestRerollBy: nil,
-                    leaderTeedOff: true,
-                    trailerTeedOff: true
-                )
-            )
-            #expect(Bool(false), "Expected rollWindowInvalid (trailer already teed off)")
-        } catch let error as SixPointScotchActionError {
-            #expect(error == .rollWindowInvalid)
+            #expect(error == .rollRequiresTrailingTeam)
         }
     }
 
-    @Test func proxWinnerWithSingleEntry() async throws {
+    @Test func proxWinnerWithSingleEntry() throws {
         var engine = SixPointScotchEngine()
         let output = try engine.scoreHole(
             .init(
@@ -244,9 +211,7 @@ struct GolfGameAppTests {
                 teamBProxFeet: nil,
                 requestPressBy: nil,
                 requestRollBy: nil,
-                requestRerollBy: nil,
-                leaderTeedOff: false,
-                trailerTeedOff: false
+                requestRerollBy: nil
             )
         )
 
@@ -254,7 +219,7 @@ struct GolfGameAppTests {
         #expect(output.rawTeamBPoints == 0)
     }
 
-    @Test func birdieBucketTieWipesOut() async throws {
+    @Test func birdieBucketTieWipesOut() throws {
         var engine = SixPointScotchEngine()
         let output = try engine.scoreHole(
             .init(
@@ -268,9 +233,7 @@ struct GolfGameAppTests {
                 teamBProxFeet: nil,
                 requestPressBy: nil,
                 requestRollBy: nil,
-                requestRerollBy: nil,
-                leaderTeedOff: false,
-                trailerTeedOff: false
+                requestRerollBy: nil
             )
         )
 
@@ -291,8 +254,6 @@ private func trailingHole(hole: Int, requestPressBy: TeamSide? = nil) -> SixPoin
         teamBProxFeet: nil,
         requestPressBy: requestPressBy,
         requestRollBy: nil,
-        requestRerollBy: nil,
-        leaderTeedOff: false,
-        trailerTeedOff: false
+        requestRerollBy: nil
     )
 }
