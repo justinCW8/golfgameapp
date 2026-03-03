@@ -17,6 +17,11 @@ struct ContentView: View {
                 .tabItem {
                     Label("Stableford", systemImage: "list.number")
                 }
+
+            NassauHomeView()
+                .tabItem {
+                    Label("Nassau", systemImage: "trophy.fill")
+                }
         }
     }
 }

@@ -403,25 +403,90 @@ struct RoundSession: Codable {
     }
 }
 
+// MARK: - Nassau Session Models
+
+struct NassauHoleResult: Codable, Hashable {
+    var holeNumber: Int
+    var grossByPlayerID: [String: Int]
+    var netByPlayerID: [String: Int]
+    var holeWinner: TeamSide?
+}
+
+struct NassauSession: Codable {
+    var id: UUID
+    var format: NassauFormat
+    var players: [PlayerSnapshot]       // 2 for singles, 4 for fourball
+    var pairings: [TeamPairing]         // empty for singles; 2 TeamPairing for fourball
+    var courseName: String
+    var teeBoxName: String
+    var holes: [CourseHoleStub]
+    var pressConfig: NassauPressConfig
+    var currentHole: Int
+    var isComplete: Bool
+    var holeInputs: [NassauHoleInput]   // Replayed on app restore to rebuild engine
+    var holeResults: [NassauHoleResult]
+    var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, format, players, pairings, courseName, teeBoxName
+        case holes, pressConfig, currentHole, isComplete
+        case holeInputs, holeResults, updatedAt
+    }
+
+    init(
+        id: UUID, format: NassauFormat, players: [PlayerSnapshot], pairings: [TeamPairing],
+        courseName: String, teeBoxName: String, holes: [CourseHoleStub],
+        pressConfig: NassauPressConfig, currentHole: Int = 1, isComplete: Bool = false,
+        holeInputs: [NassauHoleInput] = [], holeResults: [NassauHoleResult] = [],
+        updatedAt: Date = Date()
+    ) {
+        self.id = id; self.format = format; self.players = players; self.pairings = pairings
+        self.courseName = courseName; self.teeBoxName = teeBoxName; self.holes = holes
+        self.pressConfig = pressConfig; self.currentHole = currentHole; self.isComplete = isComplete
+        self.holeInputs = holeInputs; self.holeResults = holeResults; self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        format = try c.decode(NassauFormat.self, forKey: .format)
+        players = try c.decode([PlayerSnapshot].self, forKey: .players)
+        pairings = try c.decodeIfPresent([TeamPairing].self, forKey: .pairings) ?? []
+        courseName = try c.decode(String.self, forKey: .courseName)
+        teeBoxName = try c.decodeIfPresent(String.self, forKey: .teeBoxName) ?? "White"
+        holes = try c.decode([CourseHoleStub].self, forKey: .holes)
+        pressConfig = try c.decode(NassauPressConfig.self, forKey: .pressConfig)
+        currentHole = try c.decodeIfPresent(Int.self, forKey: .currentHole) ?? 1
+        isComplete = try c.decodeIfPresent(Bool.self, forKey: .isComplete) ?? false
+        holeInputs = try c.decodeIfPresent([NassauHoleInput].self, forKey: .holeInputs) ?? []
+        holeResults = try c.decodeIfPresent([NassauHoleResult].self, forKey: .holeResults) ?? []
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+    }
+}
+
 private struct AppSessionSnapshot: Codable {
     var gameSelections: [GameType: Bool]
     var activeRoundSession: RoundSession?
     var activeEventSession: EventSession?
+    var activeNassauSession: NassauSession?
 
     private enum CodingKeys: String, CodingKey {
         case gameSelections
         case activeRoundSession
         case activeEventSession
+        case activeNassauSession
     }
 
     init(
         gameSelections: [GameType: Bool],
         activeRoundSession: RoundSession?,
-        activeEventSession: EventSession?
+        activeEventSession: EventSession?,
+        activeNassauSession: NassauSession?
     ) {
         self.gameSelections = gameSelections
         self.activeRoundSession = activeRoundSession
         self.activeEventSession = activeEventSession
+        self.activeNassauSession = activeNassauSession
     }
 
     init(from decoder: Decoder) throws {
@@ -429,6 +494,7 @@ private struct AppSessionSnapshot: Codable {
         gameSelections = try container.decode([GameType: Bool].self, forKey: .gameSelections)
         activeRoundSession = try container.decodeIfPresent(RoundSession.self, forKey: .activeRoundSession)
         activeEventSession = try container.decodeIfPresent(EventSession.self, forKey: .activeEventSession)
+        activeNassauSession = try container.decodeIfPresent(NassauSession.self, forKey: .activeNassauSession)
     }
 }
 
@@ -439,6 +505,7 @@ final class AppSessionStore: ObservableObject {
     )
     @Published var activeRoundSession: RoundSession?
     @Published var activeEventSession: EventSession?
+    @Published var activeNassauSession: NassauSession?
 
     var configuredRound: RoundSetupSession? {
         activeRoundSession?.setup
@@ -547,6 +614,49 @@ final class AppSessionStore: ObservableObject {
         persist()
     }
 
+    func startNassauSession(
+        format: NassauFormat,
+        players: [PlayerSnapshot],
+        pairings: [TeamPairing],
+        courseName: String,
+        teeBoxName: String,
+        holes: [CourseHoleStub],
+        pressConfig: NassauPressConfig
+    ) {
+        activeNassauSession = NassauSession(
+            id: UUID(),
+            format: format,
+            players: players,
+            pairings: pairings,
+            courseName: courseName.isEmpty ? DemoCourseFactory.name : courseName,
+            teeBoxName: teeBoxName,
+            holes: holes,
+            pressConfig: pressConfig
+        )
+        persist()
+    }
+
+    func updateActiveNassauState(
+        currentHole: Int,
+        isComplete: Bool,
+        holeInputs: [NassauHoleInput],
+        holeResults: [NassauHoleResult]
+    ) {
+        guard var active = activeNassauSession else { return }
+        active.currentHole = currentHole
+        active.isComplete = isComplete
+        active.holeInputs = holeInputs
+        active.holeResults = holeResults
+        active.updatedAt = Date()
+        activeNassauSession = active
+        persist()
+    }
+
+    func clearActiveNassauSession() {
+        activeNassauSession = nil
+        persist()
+    }
+
     func persistSelections() {
         persist()
     }
@@ -555,7 +665,8 @@ final class AppSessionStore: ObservableObject {
         let snapshot = AppSessionSnapshot(
             gameSelections: gameSelections,
             activeRoundSession: activeRoundSession,
-            activeEventSession: activeEventSession
+            activeEventSession: activeEventSession,
+            activeNassauSession: activeNassauSession
         )
 
         do {
@@ -585,6 +696,7 @@ final class AppSessionStore: ObservableObject {
             gameSelections = snapshot.gameSelections
             activeRoundSession = snapshot.activeRoundSession
             activeEventSession = snapshot.activeEventSession
+            activeNassauSession = snapshot.activeNassauSession
         } catch {
             #if DEBUG
             print("AppSessionStore load failed: \(error)")
