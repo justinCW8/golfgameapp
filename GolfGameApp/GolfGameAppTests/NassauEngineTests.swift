@@ -248,12 +248,13 @@ struct NassauPressSubBetTests {
     @Test func pressSubBetTracksIndependently() throws {
         var engine = NassauEngine()
         let config = NassauPressConfig(autoPressTrigger: nil, maxPressesPerSegment: nil, manualPressEnabled: true)
-        // B leads by 1 after hole 1
+        // B leads by 2 after holes 1 & 2
         _ = try engine.scoreHole(input(hole: 1, aNet: 5, bNet: 4), config: config)
-        // B presses on hole 2 (starts fresh sub-bet)
-        _ = try engine.scoreHole(input(hole: 2, aNet: 4, bNet: 4, press: .teamB), config: config)
-        // A wins hole 3 — sub-bet is AS, main bet still B +1
-        let out = try engine.scoreHole(input(hole: 3, aNet: 3, bNet: 4), config: config)
+        _ = try engine.scoreHole(input(hole: 2, aNet: 5, bNet: 4), config: config)
+        // A (trailing) presses on hole 3 (starts fresh sub-bet); hole 3 halved
+        _ = try engine.scoreHole(input(hole: 3, aNet: 4, bNet: 4, press: .teamA), config: config)
+        // A wins hole 4 — sub-bet A+1, main bet still B+1
+        let out = try engine.scoreHole(input(hole: 4, aNet: 3, bNet: 4), config: config)
         let press = out.frontStatus.pressStatuses[0].matchStatus
         #expect(press.leadingTeam == .teamA)  // A up 1 in press
         #expect(press.holesUp == 1)

@@ -59,10 +59,10 @@ private struct SaturdayScoringContent: View {
                 }
                 .padding(16)
             }
-            .onChange(of: vm.currentHole) { _ in
+            .onChange(of: vm.currentHole) {
                 withAnimation { proxy.scrollTo("scrollTop", anchor: .top) }
             }
-            .onChange(of: vm.isComplete) { _ in
+            .onChange(of: vm.isComplete) {
                 withAnimation { proxy.scrollTo("scrollTop", anchor: .top) }
             }
         }

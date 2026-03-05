@@ -298,8 +298,8 @@ struct NassauEngine {
     }
 
     private func trailingTeam(in ledger: NassauSegmentLedger) -> TeamSide? {
-        if ledger.aUp < 0 { return .teamB }
-        if ledger.aUp > 0 { return .teamA }
+        if ledger.aUp > 0 { return .teamB }  // A leads → B trails
+        if ledger.aUp < 0 { return .teamA }  // B leads → A trails
         return nil
     }
 }
