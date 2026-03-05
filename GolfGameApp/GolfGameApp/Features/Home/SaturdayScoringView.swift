@@ -53,6 +53,7 @@ private struct SaturdayScoringContent: View {
                     scotchActions
                     scoreEntryGrid
                     actionButtons
+                    matchDecidedBanner
                     scotchAudit
                     stablefordStandings
                     scorecardButton
@@ -714,6 +715,47 @@ private struct SaturdayScoringContent: View {
         String(name.split(separator: " ").first ?? Substring(name))
     }
 
+    // MARK: - Match Decided Banner
+
+    @ViewBuilder
+    private var matchDecidedBanner: some View {
+        let nassauActive = vm.round.activeGames.contains(where: { $0.type == .nassau })
+        let overallClosed = vm.nassauState.overallStatus.isClosed
+        if nassauActive && overallClosed && !vm.isComplete {
+            VStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "flag.checkered.2.crossed")
+                        .font(.title3)
+                        .foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Match Decided")
+                            .font(.subheadline.weight(.semibold))
+                        Text(nassauDisplayString(vm.nassauState.overallStatus))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+
+                NavigationLink {
+                    RoundSummaryView(round: vm.round, store: store) {
+                        path.removeAll()
+                    }
+                } label: {
+                    Text("Settle Up Now")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            }
+            .padding(14)
+            .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.green.opacity(0.25), lineWidth: 1))
+        }
+    }
+
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
@@ -793,7 +835,7 @@ private struct SaturdayScoringContent: View {
 
 // MARK: - Scorecard Sheet
 
-private struct ScorecardSheet: View {
+struct ScorecardSheet: View {
     let round: SaturdayRound
     @Environment(\.dismiss) private var dismiss
 
@@ -990,7 +1032,7 @@ private struct ScorecardSheet: View {
 
 // MARK: - PGA Score Cell
 
-private struct PGAScoreCell: View {
+struct PGAScoreCell: View {
     let gross: Int?
     let par: Int
 

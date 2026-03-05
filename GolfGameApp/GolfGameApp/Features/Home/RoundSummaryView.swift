@@ -82,7 +82,7 @@ struct RoundSummaryView: View {
 
 // MARK: - Nassau Settlement
 
-private struct NassauSummaryView: View {
+struct NassauSummaryView: View {
     let round: SaturdayRound
     let config: NassauGameConfig
 
@@ -123,15 +123,19 @@ private struct NassauSummaryView: View {
         return e
     }
 
+    private func teamInitials(_ players: [PlayerSnapshot]) -> String {
+        players.map { String($0.name.split(separator: " ").first ?? Substring($0.name)) }.joined(separator: "/")
+    }
+
     private var sideAName: String {
         config.format == .fourball
-            ? "Team A"
+            ? teamInitials(round.teamAPlayers)
             : round.players.first?.name ?? "Side A"
     }
 
     private var sideBName: String {
         config.format == .fourball
-            ? "Team B"
+            ? teamInitials(round.teamBPlayers)
             : round.players.dropFirst().first?.name ?? "Side B"
     }
 
@@ -227,7 +231,7 @@ private struct NassauSummaryView: View {
 
 // MARK: - Scotch Settlement
 
-private struct ScotchSummaryView: View {
+struct ScotchSummaryView: View {
     let round: SaturdayRound
     let config: ScotchGameConfig
 
@@ -273,11 +277,18 @@ private struct ScotchSummaryView: View {
         )
     }
 
+    private func teamInitials(_ players: [PlayerSnapshot]) -> String {
+        players.map { String($0.name.split(separator: " ").first ?? Substring($0.name)) }.joined(separator: "/")
+    }
+
+    private var teamAName: String { teamInitials(round.teamAPlayers) }
+    private var teamBName: String { teamInitials(round.teamBPlayers) }
+
     var body: some View {
         let state = finalState
         let diff = state.totalA - state.totalB
-        let winnerName = diff > 0 ? "Team A" : diff < 0 ? "Team B" : nil
-        let loserName = diff > 0 ? "Team B" : diff < 0 ? "Team A" : nil
+        let winnerName = diff > 0 ? teamAName : diff < 0 ? teamBName : nil
+        let loserName = diff > 0 ? teamBName : diff < 0 ? teamAName : nil
         let amount = abs(Double(diff)) * config.pointValue
 
         VStack(spacing: 16) {
@@ -323,9 +334,9 @@ private struct ScotchSummaryView: View {
         HStack {
             Text(label).font(.subheadline).foregroundStyle(.secondary)
             Spacer()
-            Text("A: \(a)").font(.subheadline.weight(.medium)).foregroundStyle(.blue)
+            Text("\(teamAName): \(a)").font(.subheadline.weight(.medium)).foregroundStyle(.blue)
             Text("·").foregroundStyle(.secondary)
-            Text("B: \(b)").font(.subheadline.weight(.medium)).foregroundStyle(.orange)
+            Text("\(teamBName): \(b)").font(.subheadline.weight(.medium)).foregroundStyle(.orange)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -334,7 +345,7 @@ private struct ScotchSummaryView: View {
 
 // MARK: - Stableford Leaderboard
 
-private struct StablefordSummaryView: View {
+struct StablefordSummaryView: View {
     let round: SaturdayRound
 
     private var leaderboard: [(player: PlayerSnapshot, points: Int)] {

@@ -470,6 +470,7 @@ private struct AppSessionSnapshot: Codable {
     var activeEventSession: EventSession?
     var activeNassauSession: NassauSession?
     var activeSaturdayRound: SaturdayRound?
+    var completedRounds: [SaturdayRound]
 
     private enum CodingKeys: String, CodingKey {
         case gameSelections
@@ -477,6 +478,7 @@ private struct AppSessionSnapshot: Codable {
         case activeEventSession
         case activeNassauSession
         case activeSaturdayRound
+        case completedRounds
     }
 
     init(
@@ -484,13 +486,15 @@ private struct AppSessionSnapshot: Codable {
         activeRoundSession: RoundSession?,
         activeEventSession: EventSession?,
         activeNassauSession: NassauSession?,
-        activeSaturdayRound: SaturdayRound?
+        activeSaturdayRound: SaturdayRound?,
+        completedRounds: [SaturdayRound]
     ) {
         self.gameSelections = gameSelections
         self.activeRoundSession = activeRoundSession
         self.activeEventSession = activeEventSession
         self.activeNassauSession = activeNassauSession
         self.activeSaturdayRound = activeSaturdayRound
+        self.completedRounds = completedRounds
     }
 
     init(from decoder: Decoder) throws {
@@ -500,6 +504,7 @@ private struct AppSessionSnapshot: Codable {
         activeEventSession = try container.decodeIfPresent(EventSession.self, forKey: .activeEventSession)
         activeNassauSession = try container.decodeIfPresent(NassauSession.self, forKey: .activeNassauSession)
         activeSaturdayRound = try container.decodeIfPresent(SaturdayRound.self, forKey: .activeSaturdayRound)
+        completedRounds = try container.decodeIfPresent([SaturdayRound].self, forKey: .completedRounds) ?? []
     }
 }
 
@@ -512,6 +517,7 @@ final class AppSessionStore: ObservableObject {
     @Published var activeEventSession: EventSession?
     @Published var activeNassauSession: NassauSession?
     @Published var activeSaturdayRound: SaturdayRound?
+    @Published var completedRounds: [SaturdayRound] = []
 
     var configuredRound: RoundSetupSession? {
         activeRoundSession?.setup
@@ -692,7 +698,14 @@ final class AppSessionStore: ObservableObject {
     }
 
     func clearSaturdayRound() {
+        if let round = activeSaturdayRound, !round.holeEntries.isEmpty {
+            completedRounds.insert(round, at: 0)
+        }
         activeSaturdayRound = nil
+        persist()
+    }
+
+    func persistCompletedRounds() {
         persist()
     }
 
@@ -702,7 +715,8 @@ final class AppSessionStore: ObservableObject {
             activeRoundSession: activeRoundSession,
             activeEventSession: activeEventSession,
             activeNassauSession: activeNassauSession,
-            activeSaturdayRound: activeSaturdayRound
+            activeSaturdayRound: activeSaturdayRound,
+            completedRounds: completedRounds
         )
 
         do {
@@ -734,6 +748,7 @@ final class AppSessionStore: ObservableObject {
             activeEventSession = snapshot.activeEventSession
             activeNassauSession = snapshot.activeNassauSession
             activeSaturdayRound = snapshot.activeSaturdayRound
+            completedRounds = snapshot.completedRounds
         } catch {
             #if DEBUG
             print("AppSessionStore load failed: \(error)")
@@ -854,7 +869,7 @@ struct SaturdayHoleEntry: Codable, Identifiable, Equatable {
     }
 }
 
-struct SaturdayRound: Codable {
+struct SaturdayRound: Codable, Identifiable {
     var id: UUID
     var createdAt: Date
     var players: [PlayerSnapshot]
