@@ -469,24 +469,28 @@ private struct AppSessionSnapshot: Codable {
     var activeRoundSession: RoundSession?
     var activeEventSession: EventSession?
     var activeNassauSession: NassauSession?
+    var activeSaturdayRound: SaturdayRound?
 
     private enum CodingKeys: String, CodingKey {
         case gameSelections
         case activeRoundSession
         case activeEventSession
         case activeNassauSession
+        case activeSaturdayRound
     }
 
     init(
         gameSelections: [GameType: Bool],
         activeRoundSession: RoundSession?,
         activeEventSession: EventSession?,
-        activeNassauSession: NassauSession?
+        activeNassauSession: NassauSession?,
+        activeSaturdayRound: SaturdayRound?
     ) {
         self.gameSelections = gameSelections
         self.activeRoundSession = activeRoundSession
         self.activeEventSession = activeEventSession
         self.activeNassauSession = activeNassauSession
+        self.activeSaturdayRound = activeSaturdayRound
     }
 
     init(from decoder: Decoder) throws {
@@ -495,6 +499,7 @@ private struct AppSessionSnapshot: Codable {
         activeRoundSession = try container.decodeIfPresent(RoundSession.self, forKey: .activeRoundSession)
         activeEventSession = try container.decodeIfPresent(EventSession.self, forKey: .activeEventSession)
         activeNassauSession = try container.decodeIfPresent(NassauSession.self, forKey: .activeNassauSession)
+        activeSaturdayRound = try container.decodeIfPresent(SaturdayRound.self, forKey: .activeSaturdayRound)
     }
 }
 
@@ -506,6 +511,7 @@ final class AppSessionStore: ObservableObject {
     @Published var activeRoundSession: RoundSession?
     @Published var activeEventSession: EventSession?
     @Published var activeNassauSession: NassauSession?
+    @Published var activeSaturdayRound: SaturdayRound?
 
     var configuredRound: RoundSetupSession? {
         activeRoundSession?.setup
@@ -661,12 +667,42 @@ final class AppSessionStore: ObservableObject {
         persist()
     }
 
+    func startSaturdayRound(
+        players: [PlayerSnapshot],
+        teams: [TeamPairing],
+        courseName: String,
+        holes: [CourseHoleStub],
+        activeGames: [SaturdayGameConfig]
+    ) {
+        activeSaturdayRound = SaturdayRound(
+            players: players,
+            teams: teams,
+            courseName: courseName,
+            holes: holes,
+            activeGames: activeGames
+        )
+        persist()
+    }
+
+    func updateSaturdayRound(_ round: SaturdayRound) {
+        var updated = round
+        updated.updatedAt = Date()
+        activeSaturdayRound = updated
+        persist()
+    }
+
+    func clearSaturdayRound() {
+        activeSaturdayRound = nil
+        persist()
+    }
+
     private func persist() {
         let snapshot = AppSessionSnapshot(
             gameSelections: gameSelections,
             activeRoundSession: activeRoundSession,
             activeEventSession: activeEventSession,
-            activeNassauSession: activeNassauSession
+            activeNassauSession: activeNassauSession,
+            activeSaturdayRound: activeSaturdayRound
         )
 
         do {
@@ -697,6 +733,7 @@ final class AppSessionStore: ObservableObject {
             activeRoundSession = snapshot.activeRoundSession
             activeEventSession = snapshot.activeEventSession
             activeNassauSession = snapshot.activeNassauSession
+            activeSaturdayRound = snapshot.activeSaturdayRound
         } catch {
             #if DEBUG
             print("AppSessionStore load failed: \(error)")
@@ -720,6 +757,162 @@ func strokeCountForHandicapIndex(_ handicapIndex: Double, onHoleStrokeIndex si: 
     let base = courseHandicap / 18
     let remainder = courseHandicap % 18
     return base + (si <= remainder ? 1 : 0)
+}
+
+// MARK: - Saturday Round (Unified Multi-Game Session)
+
+struct NassauGameConfig: Codable, Equatable {
+    var frontStake: Double
+    var backStake: Double
+    var overallStake: Double
+    var format: NassauFormat
+    var pressConfig: NassauPressConfig
+
+    static let `default` = NassauGameConfig(
+        frontStake: 5,
+        backStake: 5,
+        overallStake: 5,
+        format: .fourball,
+        pressConfig: .default
+    )
+}
+
+struct ScotchGameConfig: Codable, Equatable {
+    var pointValue: Double  // $ per point
+
+    static let `default` = ScotchGameConfig(pointValue: 1)
+}
+
+struct StablefordGameConfig: Codable, Equatable {
+    enum ScoringType: String, Codable {
+        case standard
+        case modified
+    }
+    var scoringType: ScoringType
+
+    static let `default` = StablefordGameConfig(scoringType: .standard)
+}
+
+struct SaturdayGameConfig: Codable, Identifiable, Equatable {
+    var type: GameType
+    var nassauConfig: NassauGameConfig?
+    var scotchConfig: ScotchGameConfig?
+    var stablefordConfig: StablefordGameConfig?
+
+    var id: String { type.rawValue }
+
+    static func nassau(_ config: NassauGameConfig = .default) -> SaturdayGameConfig {
+        SaturdayGameConfig(type: .nassau, nassauConfig: config)
+    }
+
+    static func scotch(_ config: ScotchGameConfig = .default) -> SaturdayGameConfig {
+        SaturdayGameConfig(type: .sixPointScotch, scotchConfig: config)
+    }
+
+    static func stableford(_ config: StablefordGameConfig = .default) -> SaturdayGameConfig {
+        SaturdayGameConfig(type: .stableford, stablefordConfig: config)
+    }
+}
+
+struct ScotchHoleFlags: Codable, Equatable {
+    var proxFeetByPlayerID: [String: Double]
+    var requestPressBy: TeamSide?
+    var requestRollBy: TeamSide?
+    var requestRerollBy: TeamSide?
+
+    init(
+        proxFeetByPlayerID: [String: Double] = [:],
+        requestPressBy: TeamSide? = nil,
+        requestRollBy: TeamSide? = nil,
+        requestRerollBy: TeamSide? = nil
+    ) {
+        self.proxFeetByPlayerID = proxFeetByPlayerID
+        self.requestPressBy = requestPressBy
+        self.requestRollBy = requestRollBy
+        self.requestRerollBy = requestRerollBy
+    }
+}
+
+struct SaturdayHoleEntry: Codable, Identifiable, Equatable {
+    var holeNumber: Int
+    var grossByPlayerID: [String: Int]
+    var scotchFlags: ScotchHoleFlags
+    var nassauManualPressBy: TeamSide?
+
+    var id: Int { holeNumber }
+
+    init(
+        holeNumber: Int,
+        grossByPlayerID: [String: Int],
+        scotchFlags: ScotchHoleFlags = ScotchHoleFlags(),
+        nassauManualPressBy: TeamSide? = nil
+    ) {
+        self.holeNumber = holeNumber
+        self.grossByPlayerID = grossByPlayerID
+        self.scotchFlags = scotchFlags
+        self.nassauManualPressBy = nassauManualPressBy
+    }
+}
+
+struct SaturdayRound: Codable {
+    var id: UUID
+    var createdAt: Date
+    var players: [PlayerSnapshot]
+    var teams: [TeamPairing]
+    var courseName: String
+    var holes: [CourseHoleStub]
+    var activeGames: [SaturdayGameConfig]
+    var holeEntries: [SaturdayHoleEntry]
+    var currentHole: Int
+    var isComplete: Bool
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        createdAt: Date = Date(),
+        players: [PlayerSnapshot],
+        teams: [TeamPairing],
+        courseName: String,
+        holes: [CourseHoleStub],
+        activeGames: [SaturdayGameConfig],
+        holeEntries: [SaturdayHoleEntry] = [],
+        currentHole: Int = 1,
+        isComplete: Bool = false,
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.players = players
+        self.teams = teams
+        self.courseName = courseName
+        self.holes = holes
+        self.activeGames = activeGames
+        self.holeEntries = holeEntries
+        self.currentHole = currentHole
+        self.isComplete = isComplete
+        self.updatedAt = updatedAt
+    }
+
+    /// True if any selected game requires teams (Scotch or Nassau fourball)
+    var requiresTeams: Bool {
+        activeGames.contains { game in
+            switch game.type {
+            case .sixPointScotch: return true
+            case .nassau: return game.nassauConfig?.format == .fourball
+            case .stableford: return false
+            }
+        }
+    }
+
+    var teamAPlayers: [PlayerSnapshot] {
+        let ids = teams.first(where: { $0.team == .teamA })?.players.map(\.id) ?? []
+        return players.filter { ids.contains($0.id) }
+    }
+
+    var teamBPlayers: [PlayerSnapshot] {
+        let ids = teams.first(where: { $0.team == .teamB })?.players.map(\.id) ?? []
+        return players.filter { ids.contains($0.id) }
+    }
 }
 
 enum DemoCourseFactory {

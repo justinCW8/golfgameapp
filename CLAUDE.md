@@ -18,9 +18,9 @@ All MVP Phase 1 work lives on `mvp-phase-1`. `main` is the stable integration ta
 
 Three layers — no mixing:
 
-1. **Engine** — `SixPointScotchEngine`, `StablefordEngine` — pure game logic, structs only, no SwiftUI, no side effects
-2. **ViewModel** — `RoundScoringViewModel` — bridges engine + persistence to views; `@MainActor ObservableObject`
-3. **View** — `RoundScoringView` and sub-views — reads from ViewModel, no business logic
+1. **Engine** — `SixPointScotchEngine`, `StablefordEngine`, `NassauEngine` — pure game logic, structs only, no SwiftUI, no side effects
+2. **ViewModel** — `RoundScoringViewModel` / `SaturdayScoringViewModel` — bridges engine + persistence to views; `@MainActor ObservableObject`
+3. **View** — `RoundScoringView` / `SaturdayScoringView` and sub-views — reads from ViewModel, no business logic
 
 **Persistence:**
 - Active round session: JSON file persistence via `AppSessionStore` (located in `SessionModels.swift`). NOT UserDefaults.
@@ -48,6 +48,11 @@ All paths are relative to the repo root.
 | PRD master document | `docs/prd/mvp-phase-1.md` |
 | Six Point Scotch rules PRD | `docs/prd/games/six-point-scotch.md` |
 | Stableford rules PRD | `docs/prd/games/stableford-final.md` |
+| Saturday Mode home tab | `GolfGameApp/GolfGameApp/Features/Home/HomeView.swift` |
+| Saturday Mode setup flow | `GolfGameApp/GolfGameApp/Features/Home/SaturdayRoundSetupFlow.swift` |
+| Saturday Mode scoring ViewModel | `GolfGameApp/GolfGameApp/Features/Home/SaturdayScoringViewModel.swift` |
+| Saturday Mode scoring UI | `GolfGameApp/GolfGameApp/Features/Home/SaturdayScoringView.swift` |
+| Saturday Mode round summary | `GolfGameApp/GolfGameApp/Features/Home/RoundSummaryView.swift` |
 | Stableford home + setup | `GolfGameApp/GolfGameApp/Features/Events/EventHomeView.swift` |
 | Stableford scoring UI | `GolfGameApp/GolfGameApp/Features/Events/EventGroupScoringView.swift` |
 | Stableford scoring ViewModel | `GolfGameApp/GolfGameApp/Features/Events/EventGroupScoringViewModel.swift` |
@@ -247,7 +252,144 @@ Setup reuses `EventSetupViewModel` (same ViewModel for players + course), `ScanV
 
 ### Pending Architecture Decision
 
-Stableford and Six Point Scotch currently run as separate sessions in separate tabs with no shared gross score input. In real golf, players routinely score both games simultaneously from the same gross scores. A unified "Round with multiple active games" model is planned — requires Nassau PRD to be complete before rearchitecting. Do not refactor until all three game specs (Scotch, Stableford, Nassau) are finalised.
+~~Stableford and Six Point Scotch currently run as separate sessions in separate tabs with no shared gross score input.~~ **Resolved by Saturday Mode (see below).**
+
+---
+
+## Saturday Mode (Swarm 6, March 2026)
+
+Unified multi-game round: one gross score entry per player fans out to all active engines simultaneously. Replaces the separate-tab per-game approach.
+
+### Key Files
+
+| Purpose | File |
+|---------|------|
+| Home tab (no round / active round states) | `GolfGameApp/Features/Home/HomeView.swift` |
+| 4-screen setup flow + SaturdaySetupViewModel | `GolfGameApp/Features/Home/SaturdayRoundSetupFlow.swift` |
+| Scoring ViewModel (engine replay) | `GolfGameApp/Features/Home/SaturdayScoringViewModel.swift` |
+| Scoring UI | `GolfGameApp/Features/Home/SaturdayScoringView.swift` |
+| Round summary / settlement tabs | `GolfGameApp/Features/Home/RoundSummaryView.swift` |
+
+### New Models (SessionModels.swift)
+
+- `SaturdayRound` — unified session: `players`, `teamAPlayerIDs`, `teamBPlayerIDs`, `holes`, `activeGames: [SaturdayGameType]`, `holeEntries: [SaturdayHoleEntry]`, `courseName`, `isComplete`
+- `SaturdayGameConfig` — per-game config wrapping `nassauConfig`, `scotchConfig`, `stablefordConfig`
+- `NassauGameConfig`, `ScotchGameConfig`, `StablefordGameConfig`
+- `SaturdayHoleEntry` — `holeNumber`, `grossScores: [String: Int]` (playerID → gross), `scotchFlags: ScotchHoleFlags`, `nassauPressBy: TeamSide?`
+- `ScotchHoleFlags` — `proxWinnerID: String?`, `pressBy: TeamSide?`, `rollBy: TeamSide?`, `rerollBy: TeamSide?`
+- `SaturdayGameType` — enum: `.nassau`, `.sixPointScotch`, `.stableford`
+
+### AppSessionStore Additions
+
+```swift
+var activeSaturdayRound: SaturdayRound?
+func startSaturdayRound(players:teams:courseName:holes:activeGames:)
+func updateSaturdayRound(_ round: SaturdayRound)
+func clearSaturdayRound()
+```
+
+### SaturdayScoringView Layout (top → bottom, inside ScrollView)
+
+```
+holeHeader          — hole #, par, SI, course name; .id("scrollTop") for auto-scroll
+currentStandings    — compact per-game score strip (right-aligned, "Last +N" sub-label)
+scotchActions       — Press / Roll / Re-roll pill buttons (team initials, only eligible team shown)
+scoreEntryGrid      — player rows with gross TextField; prox button inline per player
+actionButtons       — "Score Hole" + "Edit Last Hole"
+scotchAudit         — collapsible "Last Hole" card (see below)
+scorecardButton     — opens PGA-style scorecard sheet
+```
+
+Auto-scroll to top on hole advance:
+```swift
+ScrollViewReader { proxy in
+    ScrollView { ... }
+    .onChange(of: vm.currentHole) { _ in
+        withAnimation { proxy.scrollTo("scrollTop", anchor: .top) }
+    }
+    .onChange(of: vm.isComplete) { _ in
+        withAnimation { proxy.scrollTo("scrollTop", anchor: .top) }
+    }
+}
+```
+
+### scotchAudit Card (collapsible)
+
+**Collapsed header:** "Last Hole · [winner initials] +[pts]  ⌄"
+**Expanded shows:**
+1. Orange pill badges for any active **Press / Roll / Re-roll** (from `vm.scotchPressBy/rollBy/rerollBy`); hidden if none are active
+2. Divider + bucket rows: Low Man, Low Team, Birdie, Prox — each with label, points, and winning team initials
+3. Divider + hole total: winning team initials + `+N`; "Push" if tied
+
+The `×N` multiplier chain (×1→×2→×4→×8) was deliberately **removed** — do not add it back.
+
+Helpers on `SaturdayScoringContent`:
+- `scotchAuditSummary(_ last:) -> String` — collapsed header text
+- `lastHoleBuckets(_ last:) -> [(String, Int, TeamSide)]` — parses `auditLog` for bucket entries
+- `teamInitials(_ side: TeamSide) -> String` — first names joined by "/"
+
+### scotchActions Pills
+
+- Shows only the action the **eligible team** may take (trailing team for press/roll, leading team for re-roll)
+- Button label = real player first names joined by "/" (never "Team A" / "Team B")
+- Tapped when active → tapping again deselects (toggle off)
+
+### scoreEntryGrid / playerRow
+
+- Player name `.subheadline.weight(.medium)`, HCP `.caption2`
+- 5pt stroke dots
+- **Prox button** inline next to player name — small capsule, only shown on par-3s (GIR required: net ≤ par)
+- Score box: `.title2.weight(.bold)`, width 62, `.padding(.horizontal,8).padding(.vertical,7)`
+- Row `.padding(.vertical, 8)`
+- `teamLabelRow`: `.caption.weight(.semibold)`, `.padding(.vertical, 4)`
+
+### SaturdayScoringViewModel Key Properties
+
+```swift
+var currentHole: Int
+var isComplete: Bool
+var isScotchActive: Bool
+var scotchState: SixPointScotchEngineState  // .lastOutput: SixPointScotchHoleOutput?
+var currentNineLedger: NineLedger           // .activePresses, .usedPresses, .teamAPoints, .teamBPoints
+var projectedScotchMultiplier: Int
+var scotchTrailingTeam: TeamSide?
+var scotchLeadingTeam: TeamSide?
+var scotchPressBy: TeamSide?
+var scotchRollBy: TeamSide?
+var scotchRerollBy: TeamSide?
+var proxWinnerID: String?
+```
+
+Engine state is derived by **replaying** all `holeEntries` through the engine from scratch each time a hole is scored.
+
+### SixPointScotchHoleOutput
+
+```swift
+var holeNumber: Int
+var rawTeamAPoints: Int
+var rawTeamBPoints: Int
+var multipliedTeamAPoints: Int
+var multipliedTeamBPoints: Int
+var multiplier: Int
+var auditLog: [String]
+```
+
+Audit log format per hole:
+```
+"Hole N"
+"Press by teamA · front (1 active)."
+"Roll by teamA."
+"Re-roll by teamB."
+"Low Man: teamA (2)"
+"Low Team: teamB (2)"
+"Birdie: teamA (1)"
+"Prox: teamA (1)"
+"Multiplier=2^N=M. Raw A/B=X/Y. Final A/B=A/B."
+```
+
+### GameStripPill (in currentStandings)
+
+Compact per-game pill row. Scotch pill shows last-hole winner and points. Press/Roll/Re-roll shown as orange pill badges inside the expanded `scotchAudit` card, not inside the pill itself. Front/Back/Total columns were removed — do not add them back.
 
 ## Commit Discipline
 
