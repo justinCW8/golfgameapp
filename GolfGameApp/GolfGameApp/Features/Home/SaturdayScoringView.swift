@@ -180,7 +180,7 @@ private struct SaturdayScoringContent: View {
             }
         case .nassau:
             let s = vm.nassauState.overallStatus
-            Text(s.displayString)
+            Text(nassauDisplayString(s))
                 .font(.headline.weight(.bold))
                 .foregroundStyle(s.leadingTeam == nil ? Color.secondary : Color.green)
         case .stableford:
@@ -455,6 +455,16 @@ private struct SaturdayScoringContent: View {
     private func teamInitials(_ side: TeamSide) -> String {
         let players = side == .teamA ? vm.round.teamAPlayers : vm.round.teamBPlayers
         return players.map { firstName($0.name) }.joined(separator: "/")
+    }
+
+    private func nassauDisplayString(_ status: NassauMatchStatus) -> String {
+        if status.isClosed, let desc = status.closedDescription {
+            let winner = status.leadingTeam == .teamA ? teamInitials(.teamA) : teamInitials(.teamB)
+            return "\(winner) won \(desc)"
+        }
+        guard let leader = status.leadingTeam else { return "AS" }
+        let name = leader == .teamA ? teamInitials(.teamA) : teamInitials(.teamB)
+        return "\(name) \(status.holesUp)UP"
     }
 
     private func scotchTeamRow(
@@ -1075,7 +1085,7 @@ private struct GameStripPill: View {
 
     private var pillText: String {
         switch game.type {
-        case .nassau: return vm.nassauState.pillText
+        case .nassau: return nassauDisplayString(vm.nassauState.overallStatus)
         case .sixPointScotch: return vm.scotchState.pillText
         case .stableford: return vm.stablefordState.pillText
         }
@@ -1184,7 +1194,7 @@ private struct GameStripPill: View {
         HStack {
             Text(label).font(.caption).foregroundStyle(.secondary)
             Spacer()
-            Text(status.displayString).font(.caption.weight(.semibold))
+            Text(nassauDisplayString(status)).font(.caption.weight(.semibold))
         }
     }
 
@@ -1201,6 +1211,16 @@ private struct GameStripPill: View {
     private func teamInitials(_ side: TeamSide) -> String {
         let players = side == .teamA ? vm.round.teamAPlayers : vm.round.teamBPlayers
         return players.map { String($0.name.split(separator: " ").first ?? Substring($0.name)) }.joined(separator: "/")
+    }
+
+    private func nassauDisplayString(_ status: NassauMatchStatus) -> String {
+        if status.isClosed, let desc = status.closedDescription {
+            let winner = status.leadingTeam == .teamA ? teamInitials(.teamA) : teamInitials(.teamB)
+            return "\(winner) won \(desc)"
+        }
+        guard let leader = status.leadingTeam else { return "AS" }
+        let name = leader == .teamA ? teamInitials(.teamA) : teamInitials(.teamB)
+        return "\(name) \(status.holesUp)UP"
     }
 
     private func pillLastHoleBuckets(_ last: SixPointScotchHoleOutput) -> [(String, Int, TeamSide)] {
