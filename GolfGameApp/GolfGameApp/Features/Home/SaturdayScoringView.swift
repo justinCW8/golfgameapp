@@ -54,6 +54,7 @@ private struct SaturdayScoringContent: View {
                     scoreEntryGrid
                     actionButtons
                     scotchAudit
+                    stablefordStandings
                     scorecardButton
                 }
                 .padding(16)
@@ -258,12 +259,18 @@ private struct SaturdayScoringContent: View {
         let gross = Int(grossText)
         let hasGIR = gross.map { $0 - strokes <= stub.par } ?? false
         let isProxSelected = vm.proxWinnerID == player.id
+        let par = stub.par
+        let lo = max(1, par - 2)
+        let scores = Array(lo...(par + 2))
+        let overflowMin = par + 3
+        let overflowSelected = (gross ?? -1) >= overflowMin
 
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
+        return VStack(alignment: .leading, spacing: 4) {
+            // Player info row
+            HStack(spacing: 6) {
                 Text(player.name)
                     .font(.subheadline.weight(.medium))
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Text(String(format: "HCP %.0f", player.handicapIndex))
                         .font(.caption2).foregroundStyle(.secondary)
                     if strokes > 0 {
@@ -271,49 +278,132 @@ private struct SaturdayScoringContent: View {
                             ForEach(0..<min(strokes, 3), id: \.self) { _ in
                                 Circle().fill(Color.green).frame(width: 5, height: 5)
                             }
-                            if strokes > 3 {
-                                Text("+\(strokes - 3)")
-                                    .font(.caption2).foregroundStyle(.green)
-                            }
+                            if strokes > 3 { Text("+\(strokes-3)").font(.caption2).foregroundStyle(.green) }
                         }
                     }
                 }
+                Spacer()
+                if vm.isScotchActive {
+                    Button { vm.proxWinnerID = isProxSelected ? nil : player.id } label: {
+                        Text("Prox").font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(isProxSelected ? .orange : .gray)
+                    .controlSize(.small)
+                    .disabled(!hasGIR)
+                }
             }
 
-            Spacer()
-
-            if vm.isScotchActive {
-                Button {
-                    vm.proxWinnerID = isProxSelected ? nil : player.id
-                } label: {
-                    Text("Prox")
-                        .font(.caption.weight(.semibold))
+            // Score buttons
+            HStack(spacing: 5) {
+                ForEach(scores, id: \.self) { score in
+                    let isSelected = gross == score
+                    let netDelta = score - strokes - par
+                    Button { vm.grossInputs[player.id] = isSelected ? "" : String(score) } label: {
+                        Text("\(score)")
+                            .font(.callout.weight(isSelected ? .bold : .regular))
+                            .frame(maxWidth: .infinity).frame(height: 40)
+                            .background(
+                                isSelected ? scoreTint(netDelta: netDelta) : Color(.tertiarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 8)
+                            )
+                            .foregroundStyle(isSelected ? .white : .primary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.bordered)
-                .tint(isProxSelected ? .orange : .gray)
-                .controlSize(.small)
-                .disabled(!hasGIR)
+                // Overflow (par+3+): shows stepper when active
+                if overflowSelected {
+                    HStack(spacing: 3) {
+                        Button {
+                            let cur = gross ?? overflowMin
+                            vm.grossInputs[player.id] = cur > overflowMin ? String(cur - 1) : ""
+                        } label: {
+                            Image(systemName: "minus").font(.caption.weight(.bold))
+                                .frame(width: 28, height: 40)
+                                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        let g = gross ?? overflowMin
+                        Text("\(g)").font(.callout.weight(.bold))
+                            .frame(maxWidth: .infinity).frame(height: 40)
+                            .background(scoreTint(netDelta: g - strokes - par), in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(.white)
+                        Button {
+                            vm.grossInputs[player.id] = String((gross ?? overflowMin) + 1)
+                        } label: {
+                            Image(systemName: "plus").font(.caption.weight(.bold))
+                                .frame(width: 28, height: 40)
+                                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    Button { vm.grossInputs[player.id] = String(overflowMin) } label: {
+                        Text("\(overflowMin)+")
+                            .font(.callout.weight(.regular))
+                            .frame(maxWidth: .infinity).frame(height: 40)
+                            .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
-            VStack(alignment: .trailing, spacing: 2) {
-                if let g = gross, g > 0 {
-                    Text("Net \(g - strokes)")
-                        .font(.caption2).foregroundStyle(.secondary)
+            // Result label
+            if let g = gross, g > 0 {
+                let net = g - strokes
+                let delta = net - par
+                let isStablefordActive = vm.round.activeGames.contains(where: { $0.type == .stableford })
+                HStack(spacing: 4) {
+                    Spacer()
+                    if isStablefordActive {
+                        let pts = StablefordEngine.scoreHole(.init(gross: g, par: par, handicapStrokes: strokes)).points
+                        Text(scoreName(delta)).font(.caption2.weight(.semibold)).foregroundStyle(scoreColor(delta))
+                        Text("·").font(.caption2).foregroundStyle(.tertiary)
+                        Text("\(pts) pts").font(.caption2.weight(.semibold)).foregroundStyle(scoreColor(delta))
+                    } else {
+                        Text("Net \(net)").font(.caption2).foregroundStyle(.secondary)
+                        Text("·").font(.caption2).foregroundStyle(.tertiary)
+                        Text(scoreName(delta)).font(.caption2.weight(.medium)).foregroundStyle(scoreColor(delta))
+                    }
                 }
-                TextField("—", text: Binding(
-                    get: { vm.grossInputs[player.id] ?? "" },
-                    set: { vm.grossInputs[player.id] = $0 }
-                ))
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.center)
-                .frame(width: 62)
-                .font(.title2.weight(.bold))
-                .padding(.horizontal, 8).padding(.vertical, 7)
-                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
+    }
+
+    private func scoreTint(netDelta: Int) -> Color {
+        switch netDelta {
+        case ...(-2): return Color(red: 0.85, green: 0.65, blue: 0.10)
+        case -1: return .green
+        case 0: return Color.accentColor
+        case 1: return .orange
+        default: return .red
+        }
+    }
+
+    private func scoreName(_ delta: Int) -> String {
+        switch delta {
+        case ...(-3): return "Albatross"
+        case -2: return "Eagle"
+        case -1: return "Birdie"
+        case 0: return "Par"
+        case 1: return "Bogey"
+        case 2: return "Double"
+        case 3: return "Triple"
+        default: return "+\(delta)"
+        }
+    }
+
+    private func scoreColor(_ delta: Int) -> Color {
+        switch delta {
+        case ...(-2): return Color(red: 0.7, green: 0.5, blue: 0.0)
+        case -1: return .green
+        case 0: return .primary
+        case 1: return .orange
+        default: return .red
+        }
     }
 
     // MARK: - Scotch Actions (Press / Roll / Re-roll)
@@ -533,6 +623,56 @@ private struct SaturdayScoringContent: View {
         }
     }
 
+    // MARK: - Stableford Standings
+
+    @ViewBuilder
+    private var stablefordStandings: some View {
+        let isStablefordActive = vm.round.activeGames.contains(where: { $0.type == .stableford })
+        if isStablefordActive, !vm.round.holeEntries.isEmpty {
+            let sorted = vm.round.players.sorted {
+                (vm.stablefordState.pointsByPlayerID[$0.id] ?? 0) >
+                (vm.stablefordState.pointsByPlayerID[$1.id] ?? 0)
+            }
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Stableford")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.purple)
+                    Spacer()
+                    let thru = vm.round.holeEntries.count
+                    Text(thru == 18 ? "Final" : "Thru \(thru)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(Color.purple.opacity(0.06))
+
+                ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, player in
+                    if idx > 0 { Divider().padding(.leading, 44) }
+                    HStack(spacing: 10) {
+                        Text("\(idx + 1)")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(idx == 0 ? .purple : .secondary)
+                            .frame(width: 18, alignment: .center)
+                        Text(player.name)
+                            .font(.subheadline)
+                            .fontWeight(idx == 0 ? .semibold : .regular)
+                        Spacer()
+                        Text("\(vm.stablefordState.pointsByPlayerID[player.id] ?? 0)")
+                            .font(.subheadline.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(idx == 0 ? .purple : .primary)
+                        Text("pts")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                }
+            }
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
     // MARK: - Scorecard Button
 
     @ViewBuilder
@@ -655,6 +795,35 @@ private struct ScorecardSheet: View {
         String(name.split(separator: " ").first ?? Substring(name))
     }
 
+    private func netScore(for player: PlayerSnapshot, on stub: CourseHoleStub?, holeNumber: Int, gross: Int) -> Int {
+        let si = stub?.strokeIndex ?? holeNumber
+        let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: si)
+        return gross - strokes
+    }
+
+    private func netColor(_ delta: Int) -> Color {
+        switch delta {
+        case ...(-2): return Color(red: 0.85, green: 0.65, blue: 0.10)
+        case -1: return .green
+        case 0: return .secondary
+        case 1: return .orange
+        default: return .red
+        }
+    }
+
+    private func netTotals(for player: PlayerSnapshot, filter: (SaturdayHoleEntry) -> Bool) -> (gross: Int, net: Int)? {
+        let filtered = entries.filter(filter)
+        let grossValues = filtered.compactMap { $0.grossByPlayerID[player.id] }
+        guard !grossValues.isEmpty else { return nil }
+        let grossTotal = grossValues.reduce(0, +)
+        let netTotal = filtered.compactMap { e -> Int? in
+            guard let g = e.grossByPlayerID[player.id] else { return nil }
+            let stub = round.holes.first(where: { $0.number == e.holeNumber })
+            return netScore(for: player, on: stub, holeNumber: e.holeNumber, gross: g)
+        }.reduce(0, +)
+        return (grossTotal, netTotal)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -686,8 +855,16 @@ private struct ScorecardSheet: View {
                                 Text("\(par)").frame(width: 36, alignment: .center)
                                     .font(.caption2).foregroundStyle(.secondary)
                                 ForEach(round.players) { player in
-                                    PGAScoreCell(gross: entry.grossByPlayerID[player.id], par: par)
-                                        .frame(maxWidth: .infinity)
+                                    VStack(spacing: 1) {
+                                        PGAScoreCell(gross: entry.grossByPlayerID[player.id], par: par)
+                                        if let g = entry.grossByPlayerID[player.id] {
+                                            let net = netScore(for: player, on: stub, holeNumber: entry.holeNumber, gross: g)
+                                            Text("\(net)")
+                                                .font(.system(size: 9).weight(.medium))
+                                                .foregroundStyle(netColor(net - par))
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
                                 }
                             }
                             .padding(.horizontal, 16).padding(.vertical, 6)
@@ -700,11 +877,15 @@ private struct ScorecardSheet: View {
                                         .frame(width: 36, alignment: .center)
                                         .font(.caption.weight(.bold)).foregroundStyle(.secondary)
                                     ForEach(round.players) { player in
-                                        let tot = entries.filter { $0.holeNumber <= 9 }
-                                            .compactMap { $0.grossByPlayerID[player.id] }.reduce(0,+)
-                                        Text(tot > 0 ? "\(tot)" : "—")
+                                        if let totals = netTotals(for: player, filter: { $0.holeNumber <= 9 }) {
+                                            VStack(spacing: 1) {
+                                                Text("\(totals.gross)").font(.caption.weight(.bold))
+                                                Text("\(totals.net)").font(.system(size: 9).weight(.medium)).foregroundStyle(.secondary)
+                                            }
                                             .frame(maxWidth: .infinity, alignment: .center)
-                                            .font(.caption.weight(.bold))
+                                        } else {
+                                            Text("—").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.bold))
+                                        }
                                     }
                                 }
                                 .padding(.horizontal, 16).padding(.vertical, 6)
@@ -725,11 +906,15 @@ private struct ScorecardSheet: View {
                             .frame(width: 36, alignment: .center)
                             .font(.caption.weight(.bold)).foregroundStyle(.secondary)
                         ForEach(round.players) { player in
-                            let tot = entries.filter { $0.holeNumber > 9 }
-                                .compactMap { $0.grossByPlayerID[player.id] }.reduce(0,+)
-                            Text(tot > 0 ? "\(tot)" : "—")
+                            if let totals = netTotals(for: player, filter: { $0.holeNumber > 9 }) {
+                                VStack(spacing: 1) {
+                                    Text("\(totals.gross)").font(.caption.weight(.bold))
+                                    Text("\(totals.net)").font(.system(size: 9).weight(.medium)).foregroundStyle(.secondary)
+                                }
                                 .frame(maxWidth: .infinity, alignment: .center)
-                                .font(.caption.weight(.bold))
+                            } else {
+                                Text("—").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.bold))
+                            }
                         }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 6)
@@ -742,10 +927,15 @@ private struct ScorecardSheet: View {
                         Text("—").frame(width: 36, alignment: .center)
                             .font(.caption2).foregroundStyle(.secondary)
                         ForEach(round.players) { player in
-                            let total = entries.compactMap { $0.grossByPlayerID[player.id] }.reduce(0,+)
-                            Text(total > 0 ? "\(total)" : "—")
+                            if let totals = netTotals(for: player, filter: { _ in true }) {
+                                VStack(spacing: 1) {
+                                    Text("\(totals.gross)").font(.caption.weight(.bold))
+                                    Text("\(totals.net)").font(.system(size: 9).weight(.medium)).foregroundStyle(.secondary)
+                                }
                                 .frame(maxWidth: .infinity, alignment: .center)
-                                .font(.caption.weight(.bold))
+                            } else {
+                                Text("—").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.bold))
+                            }
                         }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
@@ -967,13 +1157,23 @@ private struct GameStripPill: View {
                 }
             }
         case .stableford:
+            let sorted = vm.round.players.sorted {
+                (vm.stablefordState.pointsByPlayerID[$0.id] ?? 0) >
+                (vm.stablefordState.pointsByPlayerID[$1.id] ?? 0)
+            }
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(vm.round.players) { player in
-                    HStack {
+                ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, player in
+                    HStack(spacing: 6) {
+                        Text("\(idx + 1)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(idx == 0 ? .purple : .secondary)
+                            .frame(width: 14)
                         Text(player.name).font(.caption)
+                            .fontWeight(idx == 0 ? .semibold : .regular)
                         Spacer()
                         Text("\(vm.stablefordState.pointsByPlayerID[player.id] ?? 0) pts")
                             .font(.caption.weight(.semibold))
+                            .foregroundStyle(idx == 0 ? .purple : .primary)
                     }
                 }
             }

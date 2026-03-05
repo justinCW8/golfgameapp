@@ -82,81 +82,131 @@ struct EventGroupScoringView: View {
     private func playerRow(_ player: PlayerSnapshot) -> some View {
         let isPickup = viewModel.isPickup(for: player.id)
         let strokes = viewModel.strokeCount(for: player)
+        let par = viewModel.currentPar
+        let gross = Int(viewModel.grossText(for: player.id))
+        let lo = max(1, par - 2)
+        let scores = Array(lo...(par + 2))
+        let overflowMin = par + 3
+        let overflowSelected = !isPickup && (gross ?? -1) >= overflowMin
 
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: 4) {
+            // Player info
+            HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(player.name)
-                        .font(.body.weight(.medium))
-                    Text("CH \(viewModel.courseHandicap(for: player))")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                if strokes > 0 {
+                    Text(player.name).font(.body.weight(.medium))
                     HStack(spacing: 3) {
-                        ForEach(0..<min(strokes, 3), id: \.self) { _ in
-                            Circle().fill(Color.accentColor).frame(width: 7, height: 7)
-                        }
-                        if strokes > 3 {
-                            Text("+\(strokes - 3)")
-                                .font(.caption2)
-                                .foregroundStyle(Color.accentColor)
+                        Text("CH \(viewModel.courseHandicap(for: player))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        if strokes > 0 {
+                            HStack(spacing: 2) {
+                                ForEach(0..<min(strokes, 3), id: \.self) { _ in
+                                    Circle().fill(Color.accentColor).frame(width: 6, height: 6)
+                                }
+                                if strokes > 3 { Text("+\(strokes-3)").font(.caption2).foregroundStyle(Color.accentColor) }
+                            }
                         }
                     }
                 }
-
                 Spacer()
-
-                Button {
-                    viewModel.togglePickup(for: player)
-                } label: {
+                Button { viewModel.togglePickup(for: player) } label: {
                     Text("Pickup")
                         .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(isPickup ? Color.orange.opacity(0.15) : Color(.tertiarySystemBackground))
                         .foregroundStyle(isPickup ? .orange : .secondary)
                         .clipShape(Capsule())
                         .overlay(Capsule().stroke(isPickup ? Color.orange.opacity(0.6) : Color.clear, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+            }
 
-                if isPickup {
-                    Text("PU")
-                        .frame(width: 56)
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(.orange)
-                        .multilineTextAlignment(.center)
-                } else {
-                    TextField("Gross", text: Binding(
-                        get: { viewModel.grossText(for: player.id) },
-                        set: { viewModel.setGrossText($0, for: player.id) }
-                    ))
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 56)
-                    .padding(.vertical, 7)
-                    .background(Color(.tertiarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            // Score buttons or pickup banner
+            if isPickup {
+                Text("Picked Up")
+                    .font(.subheadline.weight(.medium)).foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity).frame(height: 40)
+                    .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                HStack(spacing: 5) {
+                    ForEach(scores, id: \.self) { score in
+                        let isSelected = gross == score
+                        let netDelta = score - strokes - par
+                        Button { viewModel.setGrossText(isSelected ? "" : String(score), for: player.id) } label: {
+                            Text("\(score)")
+                                .font(.callout.weight(isSelected ? .bold : .regular))
+                                .frame(maxWidth: .infinity).frame(height: 40)
+                                .background(
+                                    isSelected ? stablefordTint(netDelta: netDelta) : Color(.tertiarySystemBackground),
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                                .foregroundStyle(isSelected ? .white : .primary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if overflowSelected {
+                        HStack(spacing: 3) {
+                            Button {
+                                let cur = gross ?? overflowMin
+                                viewModel.setGrossText(cur > overflowMin ? String(cur - 1) : "", for: player.id)
+                            } label: {
+                                Image(systemName: "minus").font(.caption.weight(.bold))
+                                    .frame(width: 28, height: 40)
+                                    .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            let g = gross ?? overflowMin
+                            Text("\(g)").font(.callout.weight(.bold))
+                                .frame(maxWidth: .infinity).frame(height: 40)
+                                .background(stablefordTint(netDelta: g - strokes - par), in: RoundedRectangle(cornerRadius: 8))
+                                .foregroundStyle(.white)
+                            Button {
+                                viewModel.setGrossText(String((gross ?? overflowMin) + 1), for: player.id)
+                            } label: {
+                                Image(systemName: "plus").font(.caption.weight(.bold))
+                                    .frame(width: 28, height: 40)
+                                    .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } else {
+                        Button { viewModel.setGrossText(String(overflowMin), for: player.id) } label: {
+                            Text("\(overflowMin)+")
+                                .font(.callout.weight(.regular))
+                                .frame(maxWidth: .infinity).frame(height: 40)
+                                .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
 
-            HStack {
-                Spacer()
+            // Result preview
+            if !isPickup {
                 let net = viewModel.netPreview(for: player)
                 let pts = viewModel.pointsPreview(for: player)
-                Text("Net: \(net)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("·").font(.caption).foregroundStyle(.tertiary)
-                Text("\(pts) pts")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(pointsColor(pts))
+                if net != "—" {
+                    HStack(spacing: 4) {
+                        Spacer()
+                        Text("Net: \(net)").font(.caption2).foregroundStyle(.secondary)
+                        Text("·").font(.caption2).foregroundStyle(.tertiary)
+                        Text("\(pts) pts").font(.caption2.weight(.semibold)).foregroundStyle(pointsColor(pts))
+                    }
+                }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
+    }
+
+    private func stablefordTint(netDelta: Int) -> Color {
+        switch netDelta {
+        case ...(-2): return Color(red: 0.85, green: 0.65, blue: 0.10)
+        case -1: return .green
+        case 0: return Color.accentColor
+        case 1: return .orange
+        default: return .red
+        }
     }
 
     private func pointsColor(_ pts: String) -> Color {
@@ -240,17 +290,28 @@ struct EventGroupScoringView: View {
     // MARK: - Running Totals
 
     private var runningTotalsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Running Totals")
-                .font(.subheadline.weight(.semibold))
+        let rows = viewModel.event.map { EventGroupScoringViewModel.leaderboardRows(from: $0) } ?? []
+        let thru = viewModel.event.map { EventGroupScoringViewModel.maxCompletedHole(from: $0) } ?? 0
 
-            ForEach(viewModel.groupPlayers) { player in
-                HStack {
-                    Text(player.name)
-                        .font(.subheadline)
-                    Spacer()
-                    Text("\(viewModel.runningTotal(for: player.id)) pts")
-                        .font(.subheadline.weight(.medium))
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Leaderboard")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if thru > 0 {
+                    Text(thru == 18 ? "Final" : "Thru \(thru)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if rows.isEmpty {
+                Text("No scores yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                    leaderboardRow(rank: idx + 1, row: row)
                 }
             }
         }
@@ -258,6 +319,36 @@ struct EventGroupScoringView: View {
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal)
         .padding(.bottom)
+    }
+
+    private func leaderboardRow(rank: Int, row: StablefordLeaderboardRow) -> some View {
+        HStack(spacing: 10) {
+            Text("\(rank)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(rank == 1 ? Color.accentColor : .secondary)
+                .frame(width: 18, alignment: .center)
+
+            Text(row.player.name)
+                .font(.subheadline)
+                .fontWeight(rank == 1 ? .semibold : .regular)
+
+            Spacer()
+
+            if row.thruHole > 0 {
+                Text(row.thruHole == 18 ? "F" : "T\(row.thruHole)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, alignment: .trailing)
+            }
+
+            Text("\(row.totalPoints)")
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+                .frame(width: 28, alignment: .trailing)
+            Text("pts")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Completed

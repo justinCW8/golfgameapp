@@ -26,6 +26,40 @@ struct EventHomeView: View {
                     }
                     .padding(.horizontal)
 
+                    let rows = EventGroupScoringViewModel.leaderboardRows(from: active)
+                    let thru = EventGroupScoringViewModel.maxCompletedHole(from: active)
+                    if thru > 0 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Standings")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(thru == 18 ? "Final" : "Thru \(thru)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                                HStack(spacing: 8) {
+                                    Text("\(idx + 1)")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(idx == 0 ? Color.accentColor : .secondary)
+                                        .frame(width: 16, alignment: .center)
+                                    Text(row.player.name)
+                                        .font(.subheadline)
+                                        .fontWeight(idx == 0 ? .semibold : .regular)
+                                    Spacer()
+                                    Text("\(row.totalPoints) pts")
+                                        .font(.subheadline.weight(.semibold))
+                                        .monospacedDigit()
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
+                    }
+
                     Button("Continue Scoring") {
                         path = [.groupScoring(group.id)]
                     }
