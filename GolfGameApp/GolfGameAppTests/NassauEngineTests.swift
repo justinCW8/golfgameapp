@@ -220,11 +220,11 @@ struct NassauManualPressTests {
     @Test func manualPressThrowsWhenAtLimit() throws {
         var engine = NassauEngine()
         let config = NassauPressConfig(autoPressTrigger: nil, maxPressesPerSegment: 1, manualPressEnabled: true)
-        _ = try engine.scoreHole(input(hole: 1, aNet: 5, bNet: 4), config: config) // B leads
-        _ = try engine.scoreHole(input(hole: 2, aNet: 4, bNet: 4, press: .teamB), config: config) // 1 press used
+        _ = try engine.scoreHole(input(hole: 1, aNet: 5, bNet: 4), config: config) // B leads, A trails
+        _ = try engine.scoreHole(input(hole: 2, aNet: 4, bNet: 4, press: .teamA), config: config) // 1 press used
 
         do {
-            _ = try engine.scoreHole(input(hole: 3, aNet: 4, bNet: 4, press: .teamB), config: config)
+            _ = try engine.scoreHole(input(hole: 3, aNet: 4, bNet: 4, press: .teamA), config: config)
             #expect(Bool(false), "Expected manualPressLimitReached")
         } catch let e as NassauEngineError {
             #expect(e == .manualPressLimitReached)
@@ -234,8 +234,8 @@ struct NassauManualPressTests {
     @Test func manualPressAppearsInPressStatuses() throws {
         var engine = NassauEngine()
         let config = NassauPressConfig(autoPressTrigger: nil, maxPressesPerSegment: nil, manualPressEnabled: true)
-        _ = try engine.scoreHole(input(hole: 1, aNet: 5, bNet: 4), config: config) // B leads
-        let out = try engine.scoreHole(input(hole: 2, aNet: 4, bNet: 4, press: .teamB), config: config)
+        _ = try engine.scoreHole(input(hole: 1, aNet: 5, bNet: 4), config: config) // B leads, A trails
+        let out = try engine.scoreHole(input(hole: 2, aNet: 4, bNet: 4, press: .teamA), config: config)
         #expect(out.frontStatus.pressStatuses.count == 1)
         #expect(out.frontStatus.pressStatuses[0].startHole == 2)
     }
@@ -299,11 +299,11 @@ struct NassauSettlementTests {
     @Test func settlementCountsPressesInTotalBets() throws {
         var engine = NassauEngine()
         let config = NassauPressConfig(autoPressTrigger: nil, maxPressesPerSegment: nil, manualPressEnabled: true)
-        // B leads after hole 1
+        // B leads after hole 1, A trails
         _ = try engine.scoreHole(input(hole: 1, aNet: 5, bNet: 4), config: config)
-        // B presses on hole 2
+        // A (trailing) presses on hole 2
         for hole in 2...9 {
-            _ = try engine.scoreHole(input(hole: hole, aNet: 4, bNet: 4, press: hole == 2 ? .teamB : nil), config: config)
+            _ = try engine.scoreHole(input(hole: hole, aNet: 4, bNet: 4, press: hole == 2 ? .teamA : nil), config: config)
         }
         for hole in 10...18 {
             _ = try engine.scoreHole(input(hole: hole, aNet: 4, bNet: 4), config: config)
