@@ -1,218 +1,163 @@
-# AGENTS.md — GolfGameApp Agent Guidelines
+# AGENTS.md - GolfGameApp
 
-## Build & Test Commands
+Guidance for autonomous coding agents working in this repo.
+Run commands from repository root (`golfgameapp/`) unless noted.
 
-### Opening the Project
+## Repo Layout
+- Xcode project: `GolfGameApp/GolfGameApp.xcodeproj`
+- Main scheme: `GolfGameApp`
+- App code: `GolfGameApp/GolfGameApp/`
+- Unit tests: `GolfGameApp/GolfGameAppTests/`
+- UI tests: `GolfGameApp/GolfGameAppUITests/`
+- Fast nav index: `REPO_MAP.md`
+
+## Build, Lint, and Test Commands
+
+### Open in Xcode
 ```bash
 open GolfGameApp/GolfGameApp.xcodeproj
 ```
 
-### Running Tests (All)
+### Show schemes/targets
 ```bash
-xcodebuild test -scheme GolfGameApp -destination 'platform=iOS Simulator,name=iPhone 17'
+xcodebuild -list -project "GolfGameApp/GolfGameApp.xcodeproj"
 ```
 
-### Running a Single Test
+### Build (Debug, simulator)
 ```bash
-xcodebuild test -scheme GolfGameApp -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing GolfGameAppTests/SkinsEngineTests
+xcodebuild build \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-To run a specific test struct:
+### Run all tests
 ```bash
-xcodebuild test -scheme GolfGameApp -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing GolfGameAppTests/SkinsEngineTests/SkinsEngineGrossTests
+xcodebuild test \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-### Simulator Selection
-The project is configured for iPhone 17. Other options: iPhone 15, iPhone 16. Always verify simulator is available with:
+### Run a single test file
 ```bash
-xcrun simctl list devices available | grep iPhone
+xcodebuild test \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing 'GolfGameAppTests/SkinsEngineTests'
 ```
 
----
+### Run a single test group/struct
+```bash
+xcodebuild test \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing 'GolfGameAppTests/SkinsEngineTests/SkinsEngineGrossTests'
+```
 
-## Architecture
+### Run one specific test case
+```bash
+xcodebuild test \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing 'GolfGameAppTests/SkinsEngineTests/SkinsEngineGrossTests/outrightWinnerGetsOneSkin()'
+```
 
-### Three-Layer Architecture
-1. **Engine** — Pure game logic (e.g., `SixPointScotchEngine`, `StablefordEngine`, `NassauEngine`, `SkinsEngine`). Structs only, no SwiftUI, no side effects.
-2. **ViewModel** — Bridges engine + persistence to views. Use `@MainActor ObservableObject`.
-3. **View** — Reads from ViewModel, no business logic.
+### Run unit tests only
+```bash
+xcodebuild test \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing 'GolfGameAppTests'
+```
 
-### Source Layout
-- Main app code: `GolfGameApp/GolfGameApp/`
-- Tests: `GolfGameApp/GolfGameAppTests/`
-- UITests: `GolfGameApp/GolfGameAppUITests/`
+### Simulator discovery
+```bash
+xcrun simctl list devices available
+```
 
-### Agent Navigation
-Prefer targeted reads (`REPO_MAP.md` + specific paths) before repo-wide scans; use broad search only when location is unknown.
+### Lint/format status
+- No `.swiftlint.yml` found (no repo-enforced SwiftLint command).
+- No `.swiftformat` found (no repo-enforced SwiftFormat command).
+- Use `xcodebuild build` and `xcodebuild test` as the quality gate.
 
-### Key Models Location
-All data models and stores are in `SessionModels.swift`:
-- `AppSessionStore` — JSON file persistence (NOT UserDefaults)
-- `BuddyStore` — UserDefaults persistence for buddies
-- `CourseStore` — UserDefaults persistence for saved courses
+## Cursor / Copilot Rules
+- `.cursor/rules/`: not present
+- `.cursorrules`: not present
+- `.github/copilot-instructions.md`: not present
+- If any of these are added, treat them as high-priority constraints.
 
-### Dependency Injection
-`AppSessionStore` and `BuddyStore` are `@StateObject` in `GolfGameAppApp.swift`, injected as `.environmentObject()` on `ContentView`.
+## Architecture Rules
+- Keep the three-layer boundary strict:
+  1. Engine = pure scoring logic (no SwiftUI, no side effects)
+  2. ViewModel = `@MainActor` orchestration/state
+  3. View = rendering and bindings, not business logic
+- `AppSessionStore` uses JSON persistence (not UserDefaults).
+- `BuddyStore` and `CourseStore` use UserDefaults.
+- Stores are injected at app root via `.environmentObject(...)`.
+- Saturday mode game state is derived by replaying saved hole entries; preserve deterministic replay behavior.
 
----
-
-## Code Style Guidelines
-
-### Swift Version
-Swift 5.9+ with Swift Testing framework.
+## Code Style Guide
 
 ### Imports
-```swift
-import Foundation
-import Combine
-import SwiftUI
-// Only import what's needed
-```
+- Import only required modules.
+- Follow existing file conventions; common examples are `SwiftUI`, `Combine`, `Foundation`.
+- In tests, use `import Testing` + `@testable import GolfGameApp`.
 
-### Naming Conventions
-- **Types**: PascalCase (`TeamSide`, `SkinsEngine`, `PlayerSnapshot`)
-- **Properties/Variables**: camelCase (`activePresses`, `grossCarryover`)
-- **Enums**: PascalCase with lowercase cases (`case teamA`, `case .gross`)
-- **Constants**: camelCase, prefer grouping in enums or structs
+### Formatting
+- 4-space indentation, no tabs.
+- Keep files organized with `// MARK: - ...` sections.
+- Prefer readable helper functions over deep nesting.
+- Keep declarations and control flow consistent with nearby code.
 
-### Error Handling
-- Use `enum` for error types with associated values when needed:
-```swift
-enum SkinsActionError: Error, Equatable {
-    case holeOutOfRange
-    case notEnoughPlayers
-    case duplicatePlayerID
-}
-```
-- Throw errors with guard statements at function entry:
-```swift
-guard (1...18).contains(input.holeNumber) else {
-    throw SkinsActionError.holeOutOfRange
-}
-```
+### Types and state
+- Prefer `struct` for domain models and scoring engines.
+- Use `final class` for stores/view models with shared mutable state.
+- Prefer `let` by default; use `var` only for required mutation.
 
-### Structs vs Classes
-- Use `struct` for data models and engines (immutable preferred)
-- Use `class` with `@MainActor` for ViewModels and ObservableObjects
-- Use `final class` for stores that need reference semantics
+### Naming
+- Types/protocols/enums: PascalCase.
+- Variables/functions/properties/enum cases: camelCase.
+- Use explicit golf-domain names (`grossCarryover`, `teamAPlayers`, `currentHole`).
 
-### Protocols & Typealiases
-- Prefer `protocol` for abstraction where needed
-- `SessionModel` in this codebase is a typealias (not a protocol)
+### Access control
+- Default to `private` for implementation details.
 
-### Access Control
-- Use `private` for internal implementation details
-- Use `internal` (default) for types that need reuse across modules
-- Use `@Published` for observable properties in stores
+### Control flow and errors
+- Use `guard` for input validation and early exit.
+- Validate at boundaries (hole ranges, player counts, duplicate IDs, etc.).
+- Model business failures with typed `Error` enums.
+- Prefer specific error cases over generic failures.
 
-### Documentation Comments
-Use `// MARK:` for section organization:
-```swift
-// MARK: - Errors
-// MARK: - Input / Output
-// MARK: - Engine
-```
+### SwiftUI conventions
+- App-owned objects: `@StateObject`.
+- Shared object access in views: `@EnvironmentObject`.
+- Two-way view data flow: `@Binding`.
 
-### SwiftUI Patterns
-- Use `@StateObject` for ViewModel injection at app root
-- Use `@EnvironmentObject` for accessing stores in views
-- Use `@Binding` for two-way data flow
-- Prefer `@Observable` for new SwiftUI view models
+### Testing conventions
+- Framework is Swift Testing (`@Test`, `#expect`), not XCTest-first style.
+- Group tests by behavior (error paths, gross/net modes, audit logs, etc.).
+- Cover happy path and failure path.
+- Use small helpers/builders for repeated setup.
 
-### Computed Properties
-Place computed properties near related stored properties, not at the end of the type.
+## Agent Working Norms
+- Use `REPO_MAP.md` first for targeted navigation.
+- Do not "fix" SourceKit indexing noise unless it affects real build/test results.
+- Do not assume player index implies team; map by player IDs/team assignments.
+- Preserve Codable compatibility and persisted model shapes when editing storage models.
 
----
+## Safety and Commit Hygiene
+- Never commit `DerivedData/`, `.xcuserstate`, or local plist artifacts.
+- Stage only files related to the requested task.
+- Run relevant tests before proposing a commit.
+- Keep commit messages concise (this repo often uses `Swarm x.y` prefixes).
 
-## Testing Guidelines
-
-### Swift Testing Framework
-Use `@Test` and `#expect`:
-```swift
-@Test func outrightWinnerGetsOneSkin() throws {
-    var engine = SkinsEngine()
-    let out = try engine.scoreHole(skinsInput(hole: 1, scores: [
-        ("A", 3, 0), ("B", 4, 0), ("C", 5, 0)
-    ]))
-    #expect(out.grossResult.winnerID == "A")
-    #expect(out.grossResult.skinsAwarded == 1)
-}
-```
-
-### Test Structure
-- Group tests in `struct` by feature/subsystem
-- Use helper functions for common test setup
-- Test both success and error paths
-- Include audit log tests for engine classes
-
-### Test File Naming
-- Unit tests: `<FeatureName>Tests.swift` (e.g., `SkinsEngineTests.swift`)
-- Place in `GolfGameAppTests/` directory
-
----
-
-## Git & Commit Discipline
-
-### Branch Naming
-- Feature work: `mvp-phase-2` (current active branch)
-- Stable baseline: `mvp-phase-1`
-- Integration target: `main`
-
-### Commit Messages
-- Scope commits to a Swarm (logical feature chunk), e.g., "Swarm 8.1: Add SkinsEngine"
-- Reference Swarm number in message
-- Build must be clean before committing
-- Run tests before committing
-
-### Files to Never Commit
-- `DerivedData/`
-- `.xcuserstate`
-- `UserDefaults` plist files
-- Only stage relevant `.swift` files
-
----
-
-## Common Patterns
-
-### Engine State Replay
-Saturday Mode replays all hole entries through engines from scratch:
-```swift
-func replayEngines() {
-    var scotchEngine = SixPointScotchEngine()
-    for entry in round.holeEntries {
-        // replay each hole
-    }
-    scotchState = scotchEngine.state
-}
-```
-
-### Player Sort by Team
-Never hardcode player index 0/1 = Team A. Use pairings lookup:
-```swift
-let teamAIDs = teamPlayerIDs(for: .teamA)
-// Map prox winner to team via player ID lookup
-```
-
-### Handicap Calculation
-```swift
-strokesOnHole = holeStrokeIndex <= floor(handicapIndex) ? 1 : 0
-```
-No allowance percentage — always 100%.
-
----
-
-## Known Gotchas
-
-### SourceKit False Errors
-"Cannot find type X in scope" for `TeamSide`, `NineLedger`, `HoleResult`, etc. are pre-existing Xcode indexing noise. They do not prevent building. Do not fix.
-
-### GolfCourseAPI.com
-- `handicap` field = stroke index (not player handicap)
-- `yardage` is a separate field — must be decoded explicitly
-
----
-
-## PRDs & Documentation
-
-- PRD master: `docs/prd/mvp-phase-1.md`
-- Game rules: `docs/prd/games/six-point-scotch.md`, `docs/prd/games/stableford-final.md`
+## Useful References
+- `CLAUDE.md` for architecture details and historical decisions.
+- `REPO_MAP.md` for quick code navigation.
+- `docs/prd/mvp-phase-1.md` and `docs/prd/games/*.md` for game rules.
