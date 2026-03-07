@@ -6,12 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		3C9B7D292F52BECC00E52115 /* GamesHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE0294D2F52131D003D1988 /* GamesHomeView.swift */; };
-		3C9B7D2A2F52BED200E52115 /* HistoryHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE0294E2F521333003D1988 /* HistoryHomeView.swift */; };
-		3C9B7D312F52C0F900E52115 /* RoundHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9B7D2F2F52C0F900E52115 /* RoundHomeView.swift */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		3CE029212F521057003D1988 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -30,12 +24,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		3C9B7D2F2F52C0F900E52115 /* RoundHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundHomeView.swift; sourceTree = "<group>"; };
 		3CE029132F521056003D1988 /* GolfGameApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GolfGameApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3CE029202F521057003D1988 /* GolfGameAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GolfGameAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3CE0292A2F521057003D1988 /* GolfGameAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GolfGameAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		3CE0294D2F52131D003D1988 /* GamesHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamesHomeView.swift; sourceTree = "<group>"; };
-		3CE0294E2F521333003D1988 /* HistoryHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryHomeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -81,21 +72,9 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		3C9B7D302F52C0F900E52115 /* Round */ = {
-			isa = PBXGroup;
-			children = (
-				3C9B7D2F2F52C0F900E52115 /* RoundHomeView.swift */,
-			);
-			path = Round;
-			sourceTree = "<group>";
-		};
 		3CE0290A2F521055003D1988 = {
 			isa = PBXGroup;
 			children = (
-				3CE029412F5211B7003D1988 /* App */,
-				3CE029402F5211B0003D1988 /* UI */,
-				3CE0293F2F5211A5003D1988 /* Features */,
-				3CE0293E2F52118B003D1988 /* Core */,
 				3CE029152F521056003D1988 /* GolfGameApp */,
 				3CE029232F521057003D1988 /* GolfGameAppTests */,
 				3CE0292D2F521057003D1988 /* GolfGameAppUITests */,
@@ -111,101 +90,6 @@
 				3CE0292A2F521057003D1988 /* GolfGameAppUITests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		3CE0293E2F52118B003D1988 /* Core */ = {
-			isa = PBXGroup;
-			children = (
-				3CE029442F52121A003D1988 /* Extensions */,
-				3CE029432F521211003D1988 /* Services */,
-				3CE029422F521209003D1988 /* Models */,
-			);
-			path = Core;
-			sourceTree = "<group>";
-		};
-		3CE0293F2F5211A5003D1988 /* Features */ = {
-			isa = PBXGroup;
-			children = (
-				3C9B7D302F52C0F900E52115 /* Round */,
-				3CE029472F52123E003D1988 /* History */,
-				3CE029462F521239003D1988 /* Games */,
-			);
-			path = Features;
-			sourceTree = "<group>";
-		};
-		3CE029402F5211B0003D1988 /* UI */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = UI;
-			sourceTree = "<group>";
-		};
-		3CE029412F5211B7003D1988 /* App */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = App;
-			sourceTree = "<group>";
-		};
-		3CE029422F521209003D1988 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Models;
-			sourceTree = "<group>";
-		};
-		3CE029432F521211003D1988 /* Services */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Services;
-			sourceTree = "<group>";
-		};
-		3CE029442F52121A003D1988 /* Extensions */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Extensions;
-			sourceTree = "<group>";
-		};
-		3CE029462F521239003D1988 /* Games */ = {
-			isa = PBXGroup;
-			children = (
-				3CE0294D2F52131D003D1988 /* GamesHomeView.swift */,
-				3CE0294B2F521290003D1988 /* Scotch */,
-				3CE0294A2F521276003D1988 /* Nassau */,
-				3CE029492F52126A003D1988 /* Stableford */,
-			);
-			path = Games;
-			sourceTree = "<group>";
-		};
-		3CE029472F52123E003D1988 /* History */ = {
-			isa = PBXGroup;
-			children = (
-				3CE0294E2F521333003D1988 /* HistoryHomeView.swift */,
-			);
-			path = History;
-			sourceTree = "<group>";
-		};
-		3CE029492F52126A003D1988 /* Stableford */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Stableford;
-			sourceTree = "<group>";
-		};
-		3CE0294A2F521276003D1988 /* Nassau */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Nassau;
-			sourceTree = "<group>";
-		};
-		3CE0294B2F521290003D1988 /* Scotch */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Scotch;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -352,9 +236,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3C9B7D2A2F52BED200E52115 /* HistoryHomeView.swift in Sources */,
-				3C9B7D312F52C0F900E52115 /* RoundHomeView.swift in Sources */,
-				3C9B7D292F52BECC00E52115 /* GamesHomeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,7 +321,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -497,7 +378,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -579,7 +460,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.justincw8.GolfGameAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -600,7 +481,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.justincw8.GolfGameAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

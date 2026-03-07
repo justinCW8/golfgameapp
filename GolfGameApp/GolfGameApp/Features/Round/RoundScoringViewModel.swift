@@ -1,0 +1,724 @@
+import Foundation
+import Combine
+
+@MainActor
+final class RoundScoringViewModel: ObservableObject {
+    @Published var currentHole = 1
+    @Published var holeHistory: [SixPointScotchHoleOutput] = []
+    @Published var playerGrossInputs = ["", "", "", ""]
+    @Published var proxWinner: ProxWinner = .none
+    @Published var requestPress = false
+    @Published var requestRoll = false
+    @Published var requestReroll = false
+
+    @Published var hasScoredCurrentHole = false
+    @Published var isRoundEnded = false
+    @Published var lastOutput: SixPointScotchHoleOutput?
+    @Published var errorMessage: String?
+    @Published var holeResults: [HoleResult] = []
+    @Published var strokesByPlayerByHole: [HoleStrokeAllocation] = []
+
+    private let sessionStore: SessionModel
+    private var engine = SixPointScotchEngine()
+    private var scoredHoleInputs: [SixPointScotchHoleInput] = []
+    private let requiredInputCount = 4
+
+    init(sessionStore: SessionModel) {
+        self.sessionStore = sessionStore
+        restoreFromSession()
+    }
+
+    var players: [PlayerSnapshot] {
+        sessionStore.activeRoundSession?.setup.players ?? []
+    }
+
+    /// Players with their original index, sorted Team A first then Team B.
+    /// Use originalIndex for gross binding and ProxWinner mapping.
+    var playersWithOriginalIndex: [(originalIndex: Int, player: PlayerSnapshot)] {
+        let teamAIDs = Set(teamPlayerIDs(for: .teamA))
+        return players.enumerated()
+            .sorted { a, b in
+                let aIsA = teamAIDs.contains(a.element.id)
+                let bIsA = teamAIDs.contains(b.element.id)
+                if aIsA == bIsA { return false }
+                return aIsA
+            }
+            .map { ($0.offset, $0.element) }
+    }
+
+    var playerNames: [String] {
+        players.map(\.name)
+    }
+
+    var teamAName: String {
+        teamDisplayName(for: .teamA)
+    }
+
+    var teamBName: String {
+        teamDisplayName(for: .teamB)
+    }
+
+    var teeBoxName: String {
+        sessionStore.activeRoundSession?.setup.teeBoxName ?? "White"
+    }
+
+    var courseName: String {
+        sessionStore.activeRoundSession?.setup.courseName ?? ""
+    }
+
+    var canScore: Bool {
+        !isRoundEnded &&
+        allRequiredInputs.count == requiredInputCount &&
+        allRequiredInputs.allSatisfy { value in
+            Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        }
+    }
+
+    var latestAuditLines: [String] {
+        guard let audit = lastOutput?.auditLog,
+              let holeNum = lastOutput?.holeNumber else { return [] }
+        let header = "Hole \(holeNum)"
+        guard let startIdx = audit.lastIndex(where: { $0 == header }) else { return [] }
+        var lines = audit[startIdx...].map { formatAuditLine($0) }
+        // Move the summary line (always last) to position 1, right after the hole header
+        if lines.count > 2 {
+            let summary = lines.removeLast()
+            lines.insert(summary, at: 1)
+        }
+        return lines
+    }
+
+    private func formatAuditLine(_ raw: String) -> String {
+        if let pretty = reformatMultiplierLine(raw) { return pretty }
+        return raw
+            .replacingOccurrences(of: "teamA", with: teamAName)
+            .replacingOccurrences(of: "teamB", with: teamBName)
+    }
+
+    private func reformatMultiplierLine(_ line: String) -> String? {
+        let pattern = #"Multiplier=2\^(\d+)=(\d+)\. Raw A/B=(\d+)/(\d+)\. Final A/B=(\d+)/(\d+)\."#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let m = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              let expR  = Range(m.range(at: 1), in: line),
+              let rawAR = Range(m.range(at: 3), in: line),
+              let rawBR = Range(m.range(at: 4), in: line),
+              let exp  = Int(line[expR]),
+              let rawA = Int(line[rawAR]),
+              let rawB = Int(line[rawBR])
+        else { return nil }
+
+        func forChain(raw: Int) -> String {
+            guard exp > 0 else { return "\(raw) pts" }
+            var steps = [raw]
+            var cur = raw
+            for _ in 0..<exp { cur *= 2; steps.append(cur) }
+            return steps.map { String($0) }.joined(separator: " for ")
+        }
+
+        if rawA > 0 && rawB == 0 {
+            return "\(teamAName) \(forChain(raw: rawA))"
+        } else if rawB > 0 && rawA == 0 {
+            return "\(teamBName) \(forChain(raw: rawB))"
+        } else if rawA > 0 && rawB > 0 {
+            return "\(teamAName) \(forChain(raw: rawA))  ·  \(teamBName) \(forChain(raw: rawB))"
+        } else {
+            return "Halved"
+        }
+    }
+
+    var currentNineLedger: NineLedger {
+        currentHole <= 9 ? engine.frontNine : engine.backNine
+    }
+
+    var leadingTeam: TeamSide? {
+        leaderForLedger(currentNineLedger)
+    }
+
+    var trailingTeam: TeamSide? {
+        trailingForLedger(currentNineLedger)
+    }
+
+    var pressesRemainingThisNine: Int {
+        max(0, 2 - currentNineLedger.usedPresses)
+    }
+
+    var pressStatusText: String {
+        let active = currentNineLedger.activePresses
+        let remaining = pressesRemainingThisNine
+        let nine = currentHole <= 9 ? "front 9" : "back 9"
+        if active > 0 {
+            return "\(active) press\(active == 1 ? "" : "es") active · \(remaining) remaining · \(nine)"
+        }
+        return "\(remaining) presses remaining · \(nine)"
+    }
+
+    var nineStatusText: String {
+        statusText(teamAPoints: currentNineLedger.teamAPoints, teamBPoints: currentNineLedger.teamBPoints)
+    }
+
+    var overallStatusText: String {
+        guard let output = lastOutput else { return "E" }
+        return statusText(teamAPoints: output.totalTeamA, teamBPoints: output.totalTeamB)
+    }
+
+    var overallLeadingTeamName: String? {
+        guard let output = lastOutput else { return nil }
+        if output.totalTeamA == output.totalTeamB { return nil }
+        return output.totalTeamA > output.totalTeamB ? teamAName : teamBName
+    }
+
+    var matchStatusDisplay: String {
+        if isRoundEnded, let output = lastOutput {
+            let diff = output.totalTeamA - output.totalTeamB
+            if diff == 0 { return "All square — final" }
+            if diff > 0 { return "\(teamAName) wins +\(diff)" }
+            return "\(teamBName) wins +\(-diff)"
+        }
+        let thru = max(0, currentHole - 1)
+        guard let output = lastOutput else { return "All square" }
+        let diff = output.totalTeamA - output.totalTeamB
+        if diff == 0 { return "All square thru \(thru)" }
+        if diff > 0 { return "\(teamAName) +\(diff) thru \(thru)" }
+        return "\(teamBName) +\(-diff) thru \(thru)"
+    }
+
+    var matchMarginDisplay: String {
+        guard let output = lastOutput else { return "AS" }
+        let diff = abs(output.totalTeamA - output.totalTeamB)
+        return diff == 0 ? "AS" : "+\(diff)"
+    }
+
+    var holesThru: Int {
+        max(0, currentHole - 1)
+    }
+
+    var teamALeads: Bool {
+        guard let output = lastOutput else { return false }
+        return output.totalTeamA > output.totalTeamB
+    }
+
+    var teamBLeads: Bool {
+        guard let output = lastOutput else { return false }
+        return output.totalTeamB > output.totalTeamA
+    }
+
+    var runningUpDownDisplay: String {
+        guard let output = lastOutput else { return "All square" }
+        let diff = output.totalTeamA - output.totalTeamB
+        if diff == 0 { return "All square" }
+        if diff > 0 { return "\(teamAName) up \(diff)" }
+        return "\(teamBName) up \(-diff)"
+    }
+
+    var lastHolePointsWinnerDisplay: String {
+        guard let output = lastOutput else { return "No holes scored" }
+        if output.multipliedTeamAPoints == output.multipliedTeamBPoints {
+            return "Hole \(output.holeNumber): Halved"
+        }
+        if output.multipliedTeamAPoints > output.multipliedTeamBPoints {
+            return "Hole \(output.holeNumber): \(teamAName) wins \(output.multipliedTeamAPoints) pts"
+        }
+        return "Hole \(output.holeNumber): \(teamBName) wins \(output.multipliedTeamBPoints) pts"
+    }
+
+    var canRequestPress: Bool {
+        !isRoundEnded &&
+        trailingTeam != nil &&
+        pressesRemainingThisNine > 0 &&
+        !hasScoredCurrentHole
+    }
+
+    var canRequestRoll: Bool {
+        !isRoundEnded &&
+        trailingTeam != nil &&
+        !hasScoredCurrentHole
+    }
+
+    var canRequestReroll: Bool {
+        !isRoundEnded &&
+        leadingTeam != nil &&
+        requestRoll &&
+        !hasScoredCurrentHole
+    }
+
+    var currentHoleStrokeIndex: Int {
+        holeConfig(for: currentHole)?.strokeIndex ?? currentHole
+    }
+
+    var currentHolePar: Int {
+        holeConfig(for: currentHole)?.par ?? 4
+    }
+
+    var currentHoleYardage: Int {
+        holeConfig(for: currentHole)?.yardage ?? 0
+    }
+
+    var sortedHoleResults: [HoleResult] {
+        holeResults.sorted { $0.holeNumber < $1.holeNumber }
+    }
+
+    var totalGrossByPlayerID: [String: Int] {
+        aggregate(
+            values: holeResults.map(\.grossByPlayerID),
+            playerIDs: players.map(\.id)
+        )
+    }
+
+    var totalNetByPlayerID: [String: Int] {
+        aggregate(
+            values: holeResults.map(\.netByPlayerID),
+            playerIDs: players.map(\.id)
+        )
+    }
+
+    func netDisplay(forPlayerAt index: Int) -> String {
+        guard players.indices.contains(index) else { return "-" }
+        let raw = playerGrossInputs[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let gross = Int(raw) else { return "-" }
+        let strokes = strokeCount(for: players[index], onHoleStrokeIndex: currentHoleStrokeIndex)
+        return String(gross - strokes)
+    }
+
+    func flooredHandicapDisplay(forPlayerAt index: Int) -> Int {
+        guard players.indices.contains(index) else { return 0 }
+        return max(0, Int(players[index].handicapIndex.rounded(.down)))
+    }
+
+    func strokesDisplay(forPlayerAt index: Int) -> Int {
+        guard players.indices.contains(index) else { return 0 }
+        return strokeCount(for: players[index], onHoleStrokeIndex: currentHoleStrokeIndex)
+    }
+
+    func grossNetStrokeDisplay(forPlayerAt index: Int) -> String {
+        let strokes = strokesDisplay(forPlayerAt: index)
+        let grossText = playerGrossInputs.indices.contains(index)
+            ? playerGrossInputs[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        guard let gross = Int(grossText) else { return "Net —" }
+        let net = gross - strokes
+        return "Net \(net)"
+    }
+
+    func par(for hole: Int) -> Int {
+        holeConfig(for: hole)?.par ?? 4
+    }
+
+    func strokeIndex(for hole: Int) -> Int {
+        holeConfig(for: hole)?.strokeIndex ?? hole
+    }
+
+    func teamHoleSummaryDisplay(for team: TeamSide) -> String {
+        let ids = teamPlayerIDs(for: team)
+        guard ids.count == 2 else { return "\(teamDisplayName(for: team)): - for -" }
+        let byPlayerID = Dictionary(uniqueKeysWithValues: players.enumerated().map { ($1.id, $0) })
+        var grossValues: [Int] = []
+        var netValues: [Int] = []
+        for id in ids {
+            guard let playerIndex = byPlayerID[id], players.indices.contains(playerIndex) else {
+                return "\(teamDisplayName(for: team)): - for -"
+            }
+            let raw = playerGrossInputs[playerIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let gross = Int(raw) else {
+                return "\(teamDisplayName(for: team)): - for -"
+            }
+            let strokes = strokeCount(for: players[playerIndex], onHoleStrokeIndex: currentHoleStrokeIndex)
+            grossValues.append(gross)
+            netValues.append(gross - strokes)
+        }
+        guard let grossLow = grossValues.min(), let netLow = netValues.min() else {
+            return "\(teamDisplayName(for: team)): - for -"
+        }
+        return "\(teamDisplayName(for: team)): Net \(netLow) (Gross \(grossLow))"
+    }
+
+    func scoreCurrentHole() {
+        guard !isRoundEnded else {
+            errorMessage = "Round has ended. Start a new round to continue scoring."
+            return
+        }
+        guard currentHole <= 18 else {
+            errorMessage = "Round is complete."
+            return
+        }
+        guard !hasScoredCurrentHole else {
+            errorMessage = "This hole is already scored. Tap Next Hole."
+            return
+        }
+        guard canScore else {
+            errorMessage = "Enter all 4 player gross scores as whole numbers."
+            return
+        }
+        guard !requestReroll || requestRoll else {
+            errorMessage = "Re-roll requires roll on this hole."
+            return
+        }
+
+        do {
+            let grossScores = try parseGrossScores(playerGrossInputs)
+            let holePar = currentHolePar
+            let playerIDs = players.map(\.id)
+            guard playerIDs.count == 4 else {
+                throw ValidationError("Round requires exactly 4 players.")
+            }
+
+            let strokesByPlayer = Dictionary(uniqueKeysWithValues: players.map { player in
+                (player.id, strokeCount(for: player, onHoleStrokeIndex: currentHoleStrokeIndex))
+            })
+            let grossByPlayer = Dictionary(uniqueKeysWithValues: zip(playerIDs, grossScores))
+            let netByPlayer = Dictionary(uniqueKeysWithValues: playerIDs.map { id in
+                (id, (grossByPlayer[id] ?? 0) - (strokesByPlayer[id] ?? 0))
+            })
+
+            let teamAIDs = teamPlayerIDs(for: .teamA)
+            let teamBIDs = teamPlayerIDs(for: .teamB)
+            guard teamAIDs.count == 2, teamBIDs.count == 2 else {
+                throw ValidationError("Team assignments are incomplete.")
+            }
+
+            let teamAGross = teamAIDs.map { grossByPlayer[$0] ?? 0 }
+            let teamBGross = teamBIDs.map { grossByPlayer[$0] ?? 0 }
+            let teamANet = teamAIDs.map { netByPlayer[$0] ?? 0 }
+            let teamBNet = teamBIDs.map { netByPlayer[$0] ?? 0 }
+
+            let (teamAProx, teamBProx) = proxDistancesFromWinner(proxWinner)
+            let leader = leadingTeam
+            let trailing = trailingTeam
+
+            if requestPress && trailing == nil {
+                throw ValidationError("Press requires a trailing team on this nine.")
+            }
+            if requestRoll && trailing == nil {
+                throw ValidationError("Roll requires a trailing team on this nine.")
+            }
+            if requestReroll && leader == nil {
+                throw ValidationError("Re-roll requires a leading team on this nine.")
+            }
+
+            let input = SixPointScotchHoleInput(
+                holeNumber: currentHole,
+                par: holePar,
+                teamANetScores: teamANet,
+                teamBNetScores: teamBNet,
+                teamAGrossScores: teamAGross,
+                teamBGrossScores: teamBGross,
+                teamAProxFeet: teamAProx,
+                teamBProxFeet: teamBProx,
+                requestPressBy: requestPress ? trailing : nil,
+                requestRollBy: requestRoll ? trailing : nil,
+                requestRerollBy: requestReroll ? leader : nil
+            )
+
+            let output = try engine.scoreHole(input)
+            scoredHoleInputs.append(input)
+            holeHistory.append(output)
+            lastOutput = output
+            hasScoredCurrentHole = true
+
+            let holeResult = HoleResult(
+                holeNumber: currentHole,
+                grossByPlayerID: grossByPlayer,
+                netByPlayerID: netByPlayer
+            )
+            upsertHoleResult(holeResult)
+            upsertHoleStrokeAllocation(
+                HoleStrokeAllocation(holeNumber: currentHole, strokesByPlayerID: strokesByPlayer)
+            )
+
+            errorMessage = nil
+            resetHoleActionState()
+            persistRoundState()
+        } catch let error as ValidationError {
+            errorMessage = error.message
+        } catch let error as SixPointScotchActionError {
+            errorMessage = message(for: error)
+        } catch {
+            errorMessage = "Unable to score this hole."
+        }
+    }
+
+    func goToNextHole() {
+        guard !isRoundEnded else {
+            errorMessage = "Round has ended. Start a new round to continue scoring."
+            return
+        }
+        guard hasScoredCurrentHole else {
+            errorMessage = "Score the current hole first."
+            return
+        }
+        guard currentHole < 18 else {
+            errorMessage = "Round complete."
+            return
+        }
+
+        currentHole += 1
+        hasScoredCurrentHole = false
+        errorMessage = nil
+        resetInputsForNextHole()
+        persistRoundState()
+    }
+
+    var isRoundComplete: Bool {
+        currentHole == 18 && hasScoredCurrentHole
+    }
+
+    func pressTapped() {
+        guard !isRoundEnded else { return }
+        if requestPress {
+            requestPress = false
+            return
+        }
+        guard canRequestPress else { return }
+        requestPress = true
+    }
+
+    func rollTapped() {
+        guard !isRoundEnded else { return }
+        if requestRoll {
+            requestRoll = false
+            requestReroll = false
+            return
+        }
+        guard canRequestRoll else { return }
+        requestRoll = true
+    }
+
+    func rerollTapped() {
+        guard !isRoundEnded else { return }
+        if requestReroll {
+            requestReroll = false
+            return
+        }
+        guard canRequestReroll else { return }
+        requestReroll = true
+    }
+
+    /// Undo the score for the current hole so the user can correct and re-score.
+    /// Gross inputs are kept intact so only the wrong value needs changing.
+    func rescoreCurrentHole() {
+        guard hasScoredCurrentHole, !scoredHoleInputs.isEmpty else { return }
+
+        scoredHoleInputs.removeLast()
+        holeHistory.removeLast()
+        holeResults.removeAll { $0.holeNumber == currentHole }
+        strokesByPlayerByHole.removeAll { $0.holeNumber == currentHole }
+
+        // Replay remaining inputs through a fresh engine to restore correct state
+        var rebuilt = SixPointScotchEngine()
+        var rebuiltOutputs: [SixPointScotchHoleOutput] = []
+        for input in scoredHoleInputs {
+            if let output = try? rebuilt.scoreHole(input) {
+                rebuiltOutputs.append(output)
+            }
+        }
+        engine = rebuilt
+        holeHistory = rebuiltOutputs
+        lastOutput = rebuiltOutputs.last
+
+        hasScoredCurrentHole = false
+        errorMessage = nil
+        persistRoundState()
+    }
+
+    func endRound() {
+        guard !isRoundEnded else { return }
+        isRoundEnded = true
+        errorMessage = nil
+        persistRoundState()
+    }
+
+    func endRoundAndClearSession() {
+        sessionStore.clearActiveRoundSession()
+    }
+
+    private func parseGrossScores(_ raw: [String]) throws -> [Int] {
+        guard raw.count == requiredInputCount else {
+            throw ValidationError("Exactly 4 gross scores are required.")
+        }
+        return try raw.map {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let value = Int(trimmed) else {
+                throw ValidationError("Gross scores must be whole numbers.")
+            }
+            return value
+        }
+    }
+
+    private func strokeCount(for player: PlayerSnapshot, onHoleStrokeIndex si: Int) -> Int {
+        strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: si)
+    }
+
+    private func holeConfig(for holeNumber: Int) -> CourseHoleStub? {
+        sessionStore.activeRoundSession?.setup.holes.first(where: { $0.number == holeNumber })
+    }
+
+    func teamDisplayName(for team: TeamSide) -> String {
+        guard let pairing = sessionStore.activeRoundSession?.setup.pairings.first(where: { $0.team == team }) else {
+            return team == .teamA ? "Team A" : "Team B"
+        }
+        let names = pairing.players.map(\.name).filter { !$0.isEmpty }
+        return names.isEmpty ? (team == .teamA ? "Team A" : "Team B") : names.joined(separator: " / ")
+    }
+
+    private func teamPlayerIDs(for team: TeamSide) -> [String] {
+        sessionStore.activeRoundSession?.setup.pairings.first(where: { $0.team == team })?.players.map(\.id) ?? []
+    }
+
+    private func leaderForLedger(_ ledger: NineLedger) -> TeamSide? {
+        if ledger.teamAPoints == ledger.teamBPoints { return nil }
+        return ledger.teamAPoints > ledger.teamBPoints ? .teamA : .teamB
+    }
+
+    private func trailingForLedger(_ ledger: NineLedger) -> TeamSide? {
+        if ledger.teamAPoints == ledger.teamBPoints { return nil }
+        return ledger.teamAPoints < ledger.teamBPoints ? .teamA : .teamB
+    }
+
+    private func resetInputsForNextHole() {
+        playerGrossInputs = ["", "", "", ""]
+        proxWinner = .none
+        resetHoleActionState()
+    }
+
+    private func resetHoleActionState() {
+        requestPress = false
+        requestRoll = false
+        requestReroll = false
+    }
+
+    private func upsertHoleResult(_ result: HoleResult) {
+        if let index = holeResults.firstIndex(where: { $0.holeNumber == result.holeNumber }) {
+            holeResults[index] = result
+        } else {
+            holeResults.append(result)
+        }
+        holeResults.sort { $0.holeNumber < $1.holeNumber }
+    }
+
+    private func upsertHoleStrokeAllocation(_ value: HoleStrokeAllocation) {
+        if let index = strokesByPlayerByHole.firstIndex(where: { $0.holeNumber == value.holeNumber }) {
+            strokesByPlayerByHole[index] = value
+        } else {
+            strokesByPlayerByHole.append(value)
+        }
+        strokesByPlayerByHole.sort { $0.holeNumber < $1.holeNumber }
+    }
+
+    private func message(for error: SixPointScotchActionError) -> String {
+        switch error {
+        case .holeOutOfRange: return "Hole number must be between 1 and 18."
+        case .invalidPlayerCount: return "Exactly two player scores are required per team."
+        case .pressRequiresTrailingTeam: return "Press can only be called by the trailing team."
+        case .pressLimitReached: return "Only two presses are allowed per nine."
+        case .rollRequiresTrailingTeam: return "Roll can only be called by the trailing team."
+        case .rerollRequiresRoll: return "Re-roll requires an active roll."
+        case .rerollRequiresLeadingTeam: return "Re-roll can only be called by the leading team."
+        }
+    }
+
+    private func persistRoundState() {
+        sessionStore.updateActiveRoundState(
+            isRoundEnded: isRoundEnded,
+            currentHole: currentHole,
+            isCurrentHoleScored: hasScoredCurrentHole,
+            scoredHoleInputs: scoredHoleInputs,
+            holeResults: holeResults,
+            strokesByPlayerByHole: strokesByPlayerByHole
+        )
+    }
+
+    private func restoreFromSession() {
+        guard let session = sessionStore.activeRoundSession else { return }
+
+        var rebuiltEngine = SixPointScotchEngine()
+        var rebuiltOutputs: [SixPointScotchHoleOutput] = []
+
+        for input in session.scoredHoleInputs {
+            do {
+                let output = try rebuiltEngine.scoreHole(input)
+                rebuiltOutputs.append(output)
+            } catch {
+                errorMessage = "Saved round data is invalid for one or more holes."
+                break
+            }
+        }
+
+        engine = rebuiltEngine
+        scoredHoleInputs = session.scoredHoleInputs
+        holeHistory = rebuiltOutputs
+        lastOutput = rebuiltOutputs.last
+        currentHole = min(max(session.currentHole, 1), 18)
+        isRoundEnded = session.isRoundEnded
+        hasScoredCurrentHole = session.isCurrentHoleScored
+        holeResults = session.holeResults.sorted { $0.holeNumber < $1.holeNumber }
+        strokesByPlayerByHole = session.strokesByPlayerByHole.sorted { $0.holeNumber < $1.holeNumber }
+    }
+
+    private func proxDistancesFromWinner(_ winner: ProxWinner) -> (Double?, Double?) {
+        let idx: Int
+        switch winner {
+        case .player1: idx = 0
+        case .player2: idx = 1
+        case .player3: idx = 2
+        case .player4: idx = 3
+        case .none: return (nil, nil)
+        }
+        guard players.indices.contains(idx) else { return (nil, nil) }
+        let playerID = players[idx].id
+        let teamAIDs = teamPlayerIDs(for: .teamA)
+        // Return (teamAProxFeet, teamBProxFeet): the winning team gets distance 1, loser gets 2
+        if teamAIDs.contains(playerID) {
+            return (1, 2)
+        } else {
+            return (2, 1)
+        }
+    }
+
+    private func aggregate(values: [[String: Int]], playerIDs: [String]) -> [String: Int] {
+        var totals = Dictionary(uniqueKeysWithValues: playerIDs.map { ($0, 0) })
+        for dictionary in values {
+            for (id, value) in dictionary {
+                totals[id, default: 0] += value
+            }
+        }
+        return totals
+    }
+
+    private func statusText(teamAPoints: Int, teamBPoints: Int) -> String {
+        let margin = abs(teamAPoints - teamBPoints)
+        return margin == 0 ? "E" : "+\(margin)"
+    }
+}
+
+private struct ValidationError: Error {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+}
+
+private extension RoundScoringViewModel {
+    var allRequiredInputs: [String] {
+        playerGrossInputs
+    }
+}
+
+enum ProxWinner: String, CaseIterable, Identifiable {
+    case player1
+    case player2
+    case player3
+    case player4
+    case none
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .player1: return "Player 1"
+        case .player2: return "Player 2"
+        case .player3: return "Player 3"
+        case .player4: return "Player 4"
+        case .none: return "None"
+        }
+    }
+}

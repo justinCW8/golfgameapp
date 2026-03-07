@@ -1,22 +1,21 @@
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        TabView {
-            RoundHomeView()
-                .tabItem {
-                    Label("Round", systemImage: "flag.fill")
-                }
+    @State private var selectedTab = 0
 
-            GamesHomeView()
-                .tabItem {
-                    Label("Games", systemImage: "gamecontroller.fill")
-                }
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            HomeView()
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(0)
 
             HistoryHomeView()
-                .tabItem {
-                    Label("History", systemImage: "clock.fill")
-                }
+                .tabItem { Label("History", systemImage: "clock.fill") }
+                .tag(1)
+
+            ProfileView(selectedTab: $selectedTab)
+                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                .tag(2)
         }
     }
 }

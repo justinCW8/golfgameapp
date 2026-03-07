@@ -1,0 +1,18 @@
+# Secrets — never commit
+GolfGameApp/GolfGameApp/Core/Services/Secrets.swift
+
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+.derivedData/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# SwiftPM
+.build/
+xcuserdata/
+*.xcuserstate
