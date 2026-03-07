@@ -1,0 +1,29 @@
+AGENTS.md
+docs/prd/player_profile_ghin_prd.md
+GolfGameApp/GolfGameApp.xcodeproj/project.xcworkspace/xcuserdata/**
+**/.DS_Store
+DerivedData/**
+
+# Build artifacts
+DerivedData/
+.build/
+*.build/
+
+# Xcode
+*.xcuserdata
+*.xcuserstate
+
+# Git
+.git/
+.gitignore
+
+# Dependencies
+Pods/
+Carthage/
+Package.resolved
+
+# Large files
+*.log
+*.zip
+*.mp4
+*.mov
