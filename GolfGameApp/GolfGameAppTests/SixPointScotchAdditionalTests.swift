@@ -125,8 +125,8 @@ struct SixPointScotchProxTests {
 
     @Test func proxAwardedToGIREligibleTeamEvenWhenFurtherAway() throws {
         var engine = SixPointScotchEngine()
-        // Par 4: A net [4, 5] → 4 ≤ 4 → GIR eligible
-        //        B net [5, 6] → none ≤ 4 → NOT eligible
+        // Par 4: A gross [4, 5] → 4 ≤ 4 → natural GIR eligible
+        //        B gross [5, 6] → none ≤ 4 → NOT eligible
         // B is closer in feet but ineligible → A wins prox
         let out = try engine.scoreHole(scotchInput(
             hole: 1, par: 4,
@@ -139,7 +139,7 @@ struct SixPointScotchProxTests {
 
     @Test func proxWonByCloserTeamWhenBothHaveGIR() throws {
         var engine = SixPointScotchEngine()
-        // Both teams have GIR (net ≤ par), B closer → B wins prox
+        // Both teams have natural GIR (gross ≤ par), B closer → B wins prox
         let out = try engine.scoreHole(scotchInput(
             hole: 1, par: 4,
             aNet: [4, 5], bNet: [4, 5],
@@ -147,6 +147,21 @@ struct SixPointScotchProxTests {
         ))
         let proxEntry = out.auditLog.first(where: { $0.hasPrefix("Prox:") })
         #expect(proxEntry == "Prox: teamB (1)")
+    }
+
+    @Test func proxIneligibleWhenGrossBogeyButNetPar() throws {
+        var engine = SixPointScotchEngine()
+        // Par 4: A gross [5, 6] (bogey + worse) but net [4, 5] via handicap stroke.
+        // Natural GIR requires gross ≤ par — a handicap-assisted net par does NOT qualify.
+        // Old net-based rule would award prox to A; gross-based rule must not.
+        let out = try engine.scoreHole(scotchInput(
+            hole: 1, par: 4,
+            aNet: [4, 5], bNet: [5, 6],
+            aGross: [5, 6], bGross: [6, 7],
+            aProx: 3.0
+        ))
+        let proxEntry = out.auditLog.first(where: { $0.hasPrefix("Prox:") })
+        #expect(proxEntry == nil, "Gross bogey with handicap stroke should not qualify for prox")
     }
 }
 
