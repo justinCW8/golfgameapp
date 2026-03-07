@@ -91,7 +91,8 @@ final class BuddyStore: ObservableObject {
     func add(name: String, handicapIndex: Double) {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         guard !buddies.contains(where: { $0.name.lowercased() == name.lowercased() }) else { return }
-        buddies.append(Buddy(name: name, handicapIndex: handicapIndex))
+        let clampedHI = min(max(handicapIndex, 0), 54)
+        buddies.append(Buddy(name: name, handicapIndex: clampedHI))
         save()
     }
 
@@ -758,7 +759,8 @@ final class AppSessionStore: ObservableObject {
 
     private static func persistenceURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return base
             .appendingPathComponent("GolfGameApp", isDirectory: true)
             .appendingPathComponent("round_session.json", isDirectory: false)

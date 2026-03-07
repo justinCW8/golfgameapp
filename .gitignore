@@ -1,3 +1,6 @@
+# Secrets — never commit
+GolfGameApp/GolfGameApp/Core/Services/Secrets.swift
+
 # macOS
 .DS_Store
 

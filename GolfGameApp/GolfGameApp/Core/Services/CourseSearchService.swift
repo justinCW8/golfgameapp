@@ -29,7 +29,7 @@ struct CourseAPIResult: Identifiable {
 // MARK: - Service
 
 struct CourseSearchService {
-    private static let apiKey  = "44NKISNQ3O6TN72ANO62K5KDOM"
+    private static let apiKey  = Secrets.golfCourseAPIKey
     private static let baseURL = "https://api.golfcourseapi.com/v1"
 
     func search(query: String) async throws -> [CourseAPIResult] {

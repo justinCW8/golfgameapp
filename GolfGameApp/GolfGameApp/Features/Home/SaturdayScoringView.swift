@@ -1328,7 +1328,7 @@ private struct GameStripPill: View {
         guard raw > 0, multiplier > 1 else { return "" }
         let exponent = Int(log2(Double(multiplier)))
         var steps = [raw]
-        for _ in 0..<exponent { steps.append(steps.last! * 2) }
+        for _ in 0..<exponent { steps.append((steps.last ?? raw) * 2) }
         return steps.map { "\($0)" }.joined(separator: " for ")
     }
 }
