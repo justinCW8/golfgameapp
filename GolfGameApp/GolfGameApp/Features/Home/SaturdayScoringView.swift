@@ -51,6 +51,7 @@ private struct SaturdayScoringContent: View {
                     holeHeader.id("scrollTop")
                     currentStandings
                     scotchActions
+                    nassauActions
                     scoreEntryGrid
                     actionButtons
                     matchDecidedBanner
@@ -448,6 +449,35 @@ private struct SaturdayScoringContent: View {
                         set: { vm.scotchRerollBy = $0 }
                     )
                 }
+            }
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    // MARK: - Nassau Actions
+
+    @ViewBuilder
+    private var nassauActions: some View {
+        if vm.isNassauActive, vm.canNassauPress, !vm.isComplete {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Nassau")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.blue)
+                    Spacer()
+                    Text("trailing team presses")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(Color.blue.opacity(0.06))
+
+                scotchTeamRow(
+                    label: "Press",
+                    note: "new bet to end of nine",
+                    tint: .blue,
+                    eligibleTeam: vm.nassauTrailingTeam,
+                    current: vm.nassauManualPressBy,
+                    set: { vm.nassauManualPressBy = $0 }
+                )
             }
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
         }

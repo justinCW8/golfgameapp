@@ -344,4 +344,30 @@ final class SaturdayScoringViewModel: ObservableObject {
     var isScotchActive: Bool {
         round.activeGames.contains(where: { $0.type == .sixPointScotch })
     }
+
+    // MARK: - Nassau Press State
+
+    var isNassauActive: Bool {
+        round.activeGames.contains(where: { $0.type == .nassau })
+    }
+
+    /// The team currently trailing in the active segment (front or back), or nil if level/segment closed.
+    var nassauTrailingTeam: TeamSide? {
+        guard !nassauState.overallStatus.isClosed else { return nil }
+        let segStatus = currentHole <= 9 ? nassauState.frontStatus : nassauState.backStatus
+        guard !segStatus.isClosed else { return nil }
+        guard let leader = segStatus.leadingTeam else { return nil }
+        return leader == .teamA ? .teamB : .teamA
+    }
+
+    /// True when a manual Nassau press is legal: game active, match not level, not on last hole of segment, round not done.
+    var canNassauPress: Bool {
+        guard isNassauActive, !isComplete else { return false }
+        guard nassauTrailingTeam != nil else { return false }
+        // No press on the final hole of a segment — nothing left to run the new bet
+        let lastHole = round.holes.count   // e.g. 18 for a full round
+        let isFinalFront = currentHole == 9
+        let isFinalBack  = currentHole == lastHole
+        return !isFinalFront && !isFinalBack
+    }
 }
