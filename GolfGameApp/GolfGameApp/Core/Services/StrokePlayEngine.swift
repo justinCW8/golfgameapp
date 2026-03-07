@@ -9,6 +9,16 @@ enum StrokePlayActionError: Error, Equatable {
 
 // MARK: - Input / Output
 
+struct StrokePlayEngineConfig {
+    var format: StrokePlayFormat
+    var pairings: [BestBallPairing]
+    
+    init(format: StrokePlayFormat = .individual, pairings: [BestBallPairing] = []) {
+        self.format = format
+        self.pairings = pairings
+    }
+}
+
 struct StrokePlayPlayerScore {
     var playerID: String
     var gross: Int
@@ -32,6 +42,15 @@ struct StrokePlayStanding {
     var rank: Int
 }
 
+struct BestBallTeamStanding {
+    var teamID: String
+    var teamName: String
+    var grossTotal: Int
+    var netTotal: Int
+    var vsPar: Int
+    var rank: Int
+}
+
 struct StrokePlayHoleOutput {
     var holeNumber: Int
     /// Running gross totals per player (playerID → gross strokes taken).
@@ -44,18 +63,34 @@ struct StrokePlayHoleOutput {
     var leaderboard: [StrokePlayStanding]
     /// Full audit log across all scored holes.
     var auditLog: [String]
+    
+    // Best Ball fields (nil for individual format)
+    var bestBallTeamStandings: [BestBallTeamStanding]?
+    var bestGrossByTeam: [String: Int]?
+    var bestNetByTeam: [String: Int]?
 }
 
 // MARK: - Engine
 
 /// Pure stateful stroke-play engine. Tracks gross and net totals per player
 /// across 18 holes and produces a ranked leaderboard after each hole.
+/// Supports individual, 2v2 best ball, and team best ball formats.
 struct StrokePlayEngine {
+    private(set) var config: StrokePlayEngineConfig
     private(set) var grossTotalByPlayer: [String: Int] = [:]
     private(set) var netTotalByPlayer: [String: Int] = [:]
     /// Cumulative par of all scored holes per player (for vs-par calculation).
     private(set) var parScoredByPlayer: [String: Int] = [:]
     private(set) var auditLog: [String] = []
+    
+    // Best Ball tracking
+    private(set) var teamGrossTotals: [String: Int] = [:]
+    private(set) var teamNetTotals: [String: Int] = [:]
+    private(set) var teamParScored: [String: Int] = [:]
+    
+    init(config: StrokePlayEngineConfig = StrokePlayEngineConfig()) {
+        self.config = config
+    }
 
     mutating func scoreHole(_ input: StrokePlayHoleInput) throws -> StrokePlayHoleOutput {
         guard (1...18).contains(input.holeNumber) else {
@@ -68,6 +103,7 @@ struct StrokePlayEngine {
 
         var holeAudit: [String] = ["Hole \(input.holeNumber)"]
 
+        // Score individual players
         for score in input.scores {
             let net = score.gross - score.handicapStrokes
             grossTotalByPlayer[score.playerID, default: 0] += score.gross
@@ -77,6 +113,40 @@ struct StrokePlayEngine {
             let runningVsPar = netTotalByPlayer[score.playerID]! - parScoredByPlayer[score.playerID]!
             let vsParStr = runningVsPar == 0 ? "E" : (runningVsPar > 0 ? "+\(runningVsPar)" : "\(runningVsPar)")
             holeAudit.append("\(score.playerID): \(score.gross) gross · \(net) net · \(vsParStr)")
+        }
+
+        // Best Ball calculations
+        var bestGrossByTeam: [String: Int]?
+        var bestNetByTeam: [String: Int]?
+        var teamStandings: [BestBallTeamStanding]?
+        
+        if config.format != .individual && !config.pairings.isEmpty {
+            var holeGross: [String: Int] = [:]
+            var holeNet: [String: Int] = [:]
+            
+            for pairing in config.pairings {
+                let teamScores = input.scores.filter { pairing.playerIDs.contains($0.playerID) }
+                
+                if !teamScores.isEmpty {
+                    let bestGross = teamScores.map { $0.gross }.min() ?? 0
+                    let bestNet = teamScores.map { $0.gross - $0.handicapStrokes }.min() ?? 0
+                    
+                    holeGross[pairing.id] = bestGross
+                    holeNet[pairing.id] = bestNet
+                    
+                    teamGrossTotals[pairing.id, default: 0] += bestGross
+                    teamNetTotals[pairing.id, default: 0] += bestNet
+                    teamParScored[pairing.id, default: 0] += input.par
+                    
+                    let teamVsPar = teamNetTotals[pairing.id]! - teamParScored[pairing.id]!
+                    let vsParStr = teamVsPar == 0 ? "E" : (teamVsPar > 0 ? "+\(teamVsPar)" : "\(teamVsPar)")
+                    holeAudit.append("  \(pairing.teamName): \(bestGross) gross · \(bestNet) net · \(vsParStr)")
+                }
+            }
+            
+            bestGrossByTeam = holeGross
+            bestNetByTeam = holeNet
+            teamStandings = buildBestBallLeaderboard()
         }
 
         auditLog.append(contentsOf: holeAudit)
@@ -97,7 +167,10 @@ struct StrokePlayEngine {
             netTotalByPlayer: netTotalByPlayer,
             vsParByPlayer: vsParByPlayer,
             leaderboard: leaderboard,
-            auditLog: auditLog
+            auditLog: auditLog,
+            bestBallTeamStandings: teamStandings,
+            bestGrossByTeam: bestGrossByTeam,
+            bestNetByTeam: bestNetByTeam
         )
     }
 
@@ -119,6 +192,37 @@ struct StrokePlayEngine {
             let rank = ranked.first(where: { $0.netTotal == standing.netTotal })?.rank ?? (i + 1)
             ranked.append(StrokePlayStanding(
                 playerID: standing.playerID,
+                grossTotal: standing.grossTotal,
+                netTotal: standing.netTotal,
+                vsPar: standing.vsPar,
+                rank: rank
+            ))
+        }
+        return ranked
+    }
+    
+    private func buildBestBallLeaderboard() -> [BestBallTeamStanding] {
+        let unsorted = config.pairings.map { pairing -> BestBallTeamStanding in
+            let gross = teamGrossTotals[pairing.id] ?? 0
+            let net = teamNetTotals[pairing.id] ?? 0
+            let par = teamParScored[pairing.id] ?? 0
+            return BestBallTeamStanding(
+                teamID: pairing.id,
+                teamName: pairing.teamName,
+                grossTotal: gross,
+                netTotal: net,
+                vsPar: net - par,
+                rank: 0
+            )
+        }
+        let sorted = unsorted.sorted { $0.netTotal < $1.netTotal }
+        
+        var ranked: [BestBallTeamStanding] = []
+        for (i, standing) in sorted.enumerated() {
+            let rank = ranked.first(where: { $0.netTotal == standing.netTotal })?.rank ?? (i + 1)
+            ranked.append(BestBallTeamStanding(
+                teamID: standing.teamID,
+                teamName: standing.teamName,
                 grossTotal: standing.grossTotal,
                 netTotal: standing.netTotal,
                 vsPar: standing.vsPar,

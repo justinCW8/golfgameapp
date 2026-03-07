@@ -57,8 +57,30 @@ struct StrokePlayLiveState {
     var netTotalByPlayer: [String: Int] = [:]
     var vsParByPlayer: [String: Int] = [:]
     var lastOutput: StrokePlayHoleOutput?
+    
+    // Best Ball fields
+    var teamLeaderboard: [BestBallTeamStanding] = []
+    var config: StrokePlayGameConfig?
+    var teamDisplayNameByID: [String: String] = [:]
 
     var pillText: String {
+        // For team best ball (single team), show team vs par
+        if let cfg = config, cfg.format == .teamBestBall,
+           let teamStanding = teamLeaderboard.first {
+            let vsPar = teamStanding.vsPar
+            if vsPar == 0 { return "E" }
+            return vsPar > 0 ? "+\(vsPar)" : "\(vsPar)"
+        }
+        
+        // For 2v2 best ball, show team leader with separator for clarity
+        if let cfg = config, cfg.format == .bestBall2v2,
+           let teamLeader = teamLeaderboard.first(where: { $0.rank == 1 }) {
+            let vsPar = teamLeader.vsPar
+            let vsParStr = vsPar == 0 ? "E" : (vsPar > 0 ? "+\(vsPar)" : "\(vsPar)")
+            return "\(teamLeader.teamName) · \(vsParStr)"
+        }
+        
+        // For individual, show individual leader
         guard let leader = leaderboard.first(where: { $0.rank == 1 }) else { return "—" }
         let vsPar = leader.vsPar
         if vsPar == 0 { return "E" }
@@ -346,8 +368,13 @@ final class SaturdayScoringViewModel: ObservableObject {
         }
 
         // Stroke play replay
-        if round.activeGames.contains(where: { $0.type == .strokePlay }) {
-            var engine = StrokePlayEngine()
+        if let strokePlayGame = round.activeGames.first(where: { $0.type == .strokePlay }) {
+            let config = strokePlayGame.strokePlayConfig ?? StrokePlayGameConfig()
+            let engineConfig = StrokePlayEngineConfig(
+                format: config.format,
+                pairings: config.bestBallPairings
+            )
+            var engine = StrokePlayEngine(config: engineConfig)
             var lastOutput: StrokePlayHoleOutput?
 
             for entry in entries {
@@ -367,7 +394,10 @@ final class SaturdayScoringViewModel: ObservableObject {
                 grossTotalByPlayer: lastOutput?.grossTotalByPlayer ?? [:],
                 netTotalByPlayer: lastOutput?.netTotalByPlayer ?? [:],
                 vsParByPlayer: lastOutput?.vsParByPlayer ?? [:],
-                lastOutput: lastOutput
+                lastOutput: lastOutput,
+                teamLeaderboard: lastOutput?.bestBallTeamStandings ?? [],
+                config: config,
+                teamDisplayNameByID: strokePlayTeamDisplayNames(for: config)
             )
         }
     }
@@ -394,6 +424,33 @@ final class SaturdayScoringViewModel: ObservableObject {
 
     func playerName(for id: String) -> String {
         round.players.first(where: { $0.id == id })?.name ?? id
+    }
+
+    private func strokePlayTeamDisplayNames(for config: StrokePlayGameConfig) -> [String: String] {
+        let playersByID = Dictionary(uniqueKeysWithValues: round.players.map { ($0.id, $0) })
+
+        return Dictionary(uniqueKeysWithValues: config.bestBallPairings.map { pairing in
+            let memberNames = pairing.playerIDs.compactMap { playersByID[$0]?.name }
+            let memberInitials = memberNames.map(teamMemberInitials(from:))
+            let displayName = memberInitials.isEmpty ? pairing.teamName : memberInitials.joined(separator: "/")
+            return (pairing.id, displayName)
+        })
+    }
+
+    private func teamMemberInitials(from name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "?" }
+
+        let parts = trimmed.split(whereSeparator: { $0.isWhitespace })
+        if parts.count > 1 {
+            return parts.compactMap(\.first).map(String.init).joined().uppercased()
+        }
+
+        if trimmed.count <= 3 {
+            return trimmed.uppercased()
+        }
+
+        return String(trimmed.prefix(1)).uppercased()
     }
 
     // MARK: - Scotch Press/Roll State

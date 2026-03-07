@@ -351,9 +351,14 @@ struct ScotchSummaryView: View {
 
 struct StrokePlaySummaryView: View {
     let round: SaturdayRound
-
-    private var leaderboard: [(player: PlayerSnapshot, grossTotal: Int, netTotal: Int, vsPar: Int)] {
-        var engine = StrokePlayEngine()
+    
+    private var config: StrokePlayGameConfig {
+        round.activeGames.first(where: { $0.type == .strokePlay })?.strokePlayConfig ?? StrokePlayGameConfig()
+    }
+    
+    private var engineResult: StrokePlayHoleOutput? {
+        let engineConfig = StrokePlayEngineConfig(format: config.format, pairings: config.bestBallPairings)
+        var engine = StrokePlayEngine(config: engineConfig)
         let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
         var lastOutput: StrokePlayHoleOutput?
         for entry in entries {
@@ -367,17 +372,92 @@ struct StrokePlaySummaryView: View {
                 lastOutput = output
             }
         }
-        guard let output = lastOutput else { return [] }
+        return lastOutput
+    }
+
+    private var leaderboard: [(player: PlayerSnapshot, grossTotal: Int, netTotal: Int, vsPar: Int)] {
+        guard let output = engineResult else { return [] }
         return output.leaderboard.compactMap { standing in
             guard let player = round.players.first(where: { $0.id == standing.playerID }) else { return nil }
             return (player: player, grossTotal: standing.grossTotal, netTotal: standing.netTotal, vsPar: standing.vsPar)
         }
     }
+    
+    private var teamLeaderboard: [BestBallTeamStanding] {
+        engineResult?.bestBallTeamStandings ?? []
+    }
 
     var body: some View {
         VStack(spacing: 16) {
-            // Winner banner
-            if let top = leaderboard.first {
+            // Team Best Ball - show only team winner
+            if config.format == .teamBestBall, let topTeam = teamLeaderboard.first {
+                let vsParStr = topTeam.vsPar == 0 ? "Even" : (topTeam.vsPar > 0 ? "+\(topTeam.vsPar)" : "\(topTeam.vsPar)")
+                VStack(spacing: 6) {
+                    Text(topTeam.teamName)
+                        .font(.title2.weight(.bold)).foregroundStyle(.teal)
+                    Text("\(vsParStr) · Net \(topTeam.netTotal)")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+            // 2v2 Best Ball - show team winners
+            else if config.format == .bestBall2v2, let topTeam = teamLeaderboard.first(where: { $0.rank == 1 }) {
+                let vsParStr = topTeam.vsPar == 0 ? "Even" : (topTeam.vsPar > 0 ? "+\(topTeam.vsPar)" : "\(topTeam.vsPar)")
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "trophy.fill")
+                            .foregroundStyle(.yellow)
+                        Text(topTeam.teamName)
+                            .font(.title2.weight(.bold)).foregroundStyle(.teal)
+                    }
+                    Text("\(vsParStr) · Net \(topTeam.netTotal)")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                
+                // Team leaderboard
+                VStack(spacing: 0) {
+                    HStack(spacing: 12) {
+                        Text("").frame(width: 24)
+                        Text("Team").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("Gross").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                        Text("Net").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                        Text("+/-").font(.caption).foregroundStyle(.secondary).frame(width: 36)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    Divider()
+                    ForEach(Array(teamLeaderboard.enumerated()), id: \.element.teamID) { index, team in
+                        HStack(spacing: 12) {
+                            Text("\(team.rank)")
+                                .font(.headline)
+                                .foregroundStyle(team.rank == 1 ? .teal : .secondary)
+                                .frame(width: 24)
+                            Text(team.teamName)
+                                .font(.subheadline.weight(team.rank == 1 ? .semibold : .regular))
+                            Spacer()
+                            Text("\(team.grossTotal)").font(.subheadline).frame(width: 44)
+                            Text("\(team.netTotal)").font(.subheadline.weight(.medium)).frame(width: 44)
+                            let vsParStr = team.vsPar == 0 ? "E" : (team.vsPar > 0 ? "+\(team.vsPar)" : "\(team.vsPar)")
+                            Text(vsParStr)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(team.vsPar < 0 ? .teal : (team.vsPar == 0 ? .primary : .secondary))
+                                .frame(width: 36)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        if index < teamLeaderboard.count - 1 { Divider() }
+                    }
+                }
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+            // Individual - show individual winner
+            else if let top = leaderboard.first {
                 let vsParStr = top.vsPar == 0 ? "Even" : (top.vsPar > 0 ? "+\(top.vsPar)" : "\(top.vsPar)")
                 VStack(spacing: 6) {
                     Text(top.player.name)
@@ -390,43 +470,45 @@ struct StrokePlaySummaryView: View {
                 .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
             }
 
-            // Full leaderboard
-            VStack(spacing: 0) {
-                // Header
-                HStack(spacing: 12) {
-                    Text("").frame(width: 24)
-                    Text("Player").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Text("Gross").font(.caption).foregroundStyle(.secondary).frame(width: 44)
-                    Text("Net").font(.caption).foregroundStyle(.secondary).frame(width: 44)
-                    Text("+/-").font(.caption).foregroundStyle(.secondary).frame(width: 36)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                Divider()
-                ForEach(Array(leaderboard.enumerated()), id: \.element.player.id) { index, row in
+            // Individual leaderboard (show for individual and 2v2)
+            if config.format != .teamBestBall {
+                VStack(spacing: 0) {
+                    // Header
                     HStack(spacing: 12) {
-                        Text("\(index + 1)")
-                            .font(.headline)
-                            .foregroundStyle(index == 0 ? .teal : .secondary)
-                            .frame(width: 24)
-                        Text(row.player.name)
-                            .font(.subheadline.weight(index == 0 ? .semibold : .regular))
+                        Text("").frame(width: 24)
+                        Text("Player").font(.caption).foregroundStyle(.secondary)
                         Spacer()
-                        Text("\(row.grossTotal)").font(.subheadline).frame(width: 44)
-                        Text("\(row.netTotal)").font(.subheadline.weight(.medium)).frame(width: 44)
-                        let vsParStr = row.vsPar == 0 ? "E" : (row.vsPar > 0 ? "+\(row.vsPar)" : "\(row.vsPar)")
-                        Text(vsParStr)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(row.vsPar < 0 ? .teal : (row.vsPar == 0 ? .primary : .secondary))
-                            .frame(width: 36)
+                        Text("Gross").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                        Text("Net").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                        Text("+/-").font(.caption).foregroundStyle(.secondary).frame(width: 36)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    if index < leaderboard.count - 1 { Divider() }
+                    .padding(.vertical, 8)
+                    Divider()
+                    ForEach(Array(leaderboard.enumerated()), id: \.element.player.id) { index, row in
+                        HStack(spacing: 12) {
+                            Text("\(index + 1)")
+                                .font(.headline)
+                                .foregroundStyle(index == 0 ? .teal : .secondary)
+                                .frame(width: 24)
+                            Text(row.player.name)
+                                .font(.subheadline.weight(index == 0 ? .semibold : .regular))
+                            Spacer()
+                            Text("\(row.grossTotal)").font(.subheadline).frame(width: 44)
+                            Text("\(row.netTotal)").font(.subheadline.weight(.medium)).frame(width: 44)
+                            let vsParStr = row.vsPar == 0 ? "E" : (row.vsPar > 0 ? "+\(row.vsPar)" : "\(row.vsPar)")
+                            Text(vsParStr)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(row.vsPar < 0 ? .teal : (row.vsPar == 0 ? .primary : .secondary))
+                                .frame(width: 36)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        if index < leaderboard.count - 1 { Divider() }
+                    }
                 }
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
             }
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 }

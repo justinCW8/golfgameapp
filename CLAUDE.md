@@ -568,6 +568,52 @@ private let allGames: [GameType] = [.nassau, .sixPointScotch, .stableford, .skin
 
 ---
 
+## Swarm 10 Additions (March 2026) — Stroke Play Engine + Best Ball
+
+### Swarm 10 — StrokePlayEngine
+
+`GolfGameApp/GolfGameApp/Core/Services/StrokePlayEngine.swift` — pure stroke play engine.
+
+**Key types:** `StrokePlayPlayerScore`, `StrokePlayHoleInput`, `StrokePlayStanding`, `StrokePlayHoleOutput`, `StrokePlayEngine`
+- Tracks gross/net totals, vs-par, ranked leaderboard per player
+- `buildLeaderboard(playerIDs:)` — sorts by net total ascending, shared ranks for ties
+- 17 unit tests in `StrokePlayEngineTests.swift` across 6 suites — all passing
+
+### Swarm 10.1 — Best Ball Formats
+
+`StrokePlayGameConfig` extended with `format: StrokePlayFormat` and `bestBallPairings: [BestBallPairing]`.
+
+**Formats:**
+- `.individual` — each player's own net total, personal leaderboard
+- `.bestBall2v2` — two teams of 2, best net per hole per team, team standings + individual leaderboard shown
+- `.teamBestBall` — all players as one team, best net per hole vs par
+
+**Setup flow:** Stroke Play section in game config with segmented picker + `StrokePlayTeamSetupView` for assigning players to best ball teams.
+
+**Score entry grid:** When `.bestBall2v2` active, players grouped by pairing with colored team label rows (Team A = teal, Team B = purple) and running team score shown inline: `Team A  −4`.
+
+**GameStripPill collapsed text:**
+- Individual: `"JW −2"` (solo leader) or `"T1 · −2"` (tied)
+- 2v2: `"A −4 · B −3"` (both team scores always visible)
+- Team Best Ball: single team vs-par string
+
+**Pill expanded content:** Teams section (per-team colors) + Individuals section (for individual and 2v2).
+
+### Swarm 10.2–10.3 — AGENTS.md + REPO_MAP.md
+
+Agent navigation docs added at repo root. Not relevant to game logic.
+
+### Swarm 10.4 — Stroke Play UX Polish
+
+- Stroke Play excluded from top `currentStandings` strip (no press decisions needed); shows only in expandable bottom pill
+- Tied individual leaders: `"T1 · −2"` format (not slash-separated names which implies teams)
+- `strokePlayTeamColor(for teamID:)` helper in `GameStripPill` maps pairing index → teal/purple
+- Team label rows in score entry show team name + running score on right side
+- "Edit Previous Hole" and "End Round Early" styled as full-width `.bordered` buttons with icons
+- Both buttons show confirmation alerts before acting (`showEditPreviousAlert`, `showEndRoundAlert`)
+
+---
+
 ## Commit Discipline
 
 - Scope commits to a Swarm (logical feature chunk), e.g. "Swarm 2.11: ..."
