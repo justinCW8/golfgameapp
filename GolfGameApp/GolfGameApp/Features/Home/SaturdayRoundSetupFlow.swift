@@ -945,6 +945,29 @@ private struct SetupScreen4_Settings: View {
                 }
             }
             
+            // Skins settings
+            if vm.selectedGames.contains(.skins) {
+                Section {
+                    Picker("Mode", selection: $vm.skinsConfig.mode) {
+                        Text("Gross").tag(SkinsMode.gross)
+                        Text("Net").tag(SkinsMode.net)
+                        Text("Both").tag(SkinsMode.both)
+                    }
+                    .pickerStyle(.segmented)
+
+                    Toggle("Carryover", isOn: $vm.skinsConfig.carryoverEnabled)
+
+                    StakeRow(label: "$ per Skin", value: $vm.skinsConfig.skinValue)
+                } header: {
+                    Text("Skins")
+                } footer: {
+                    Text(vm.skinsConfig.carryoverEnabled
+                        ? "Tied holes carry the skin to the next hole."
+                        : "Tied holes void the skin — no carryover.")
+                        .font(.caption)
+                }
+            }
+
             // Stroke Play settings
             if vm.selectedGames.contains(.strokePlay) {
                 Section {
