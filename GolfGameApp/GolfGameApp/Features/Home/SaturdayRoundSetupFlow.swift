@@ -111,6 +111,7 @@ final class SaturdaySetupViewModel: ObservableObject {
             case .sixPointScotch: return .scotch(scotchConfig)
             case .stableford: return .stableford(stablefordConfig)
             case .skins: return .skins(skinsConfig)
+            case .strokePlay: return .strokePlay()
             }
         }
     }
@@ -634,7 +635,7 @@ private struct SetupScreen2_Games: View {
     @ObservedObject var vm: SaturdaySetupViewModel
     @Binding var path: [SaturdayRoute]
 
-    private let allGames: [GameType] = [.nassau, .sixPointScotch, .stableford, .skins]
+    private let allGames: [GameType] = [.nassau, .sixPointScotch, .stableford, .skins, .strokePlay]
 
     var body: some View {
         ScrollView {
@@ -662,7 +663,7 @@ private struct SetupScreen2_Games: View {
     private func gameDisabled(_ game: GameType) -> Bool {
         switch game {
         case .sixPointScotch: return !vm.scotchEligible
-        case .nassau, .stableford, .skins: return false
+        case .nassau, .stableford, .skins, .strokePlay: return false
         }
     }
 
@@ -753,6 +754,7 @@ private struct GameSelectCard: View {
         case .sixPointScotch: return "flame.fill"
         case .stableford: return "list.number"
         case .skins: return "dollarsign.circle.fill"
+        case .strokePlay: return "figure.golf"
         }
     }
 
@@ -762,6 +764,7 @@ private struct GameSelectCard: View {
         case .sixPointScotch: return .orange
         case .stableford: return .blue
         case .skins: return .green
+        case .strokePlay: return .teal
         }
     }
 
@@ -771,6 +774,7 @@ private struct GameSelectCard: View {
         case .sixPointScotch: return "Points per hole · 2v2 teams required"
         case .stableford: return "Individual points scoring"
         case .skins: return "Hole-by-hole individual skins"
+        case .strokePlay: return "Gross & net leaderboard"
         }
     }
 }

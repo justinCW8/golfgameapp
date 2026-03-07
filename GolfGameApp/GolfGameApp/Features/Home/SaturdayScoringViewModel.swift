@@ -51,6 +51,21 @@ struct SkinsLiveState {
     }
 }
 
+struct StrokePlayLiveState {
+    var leaderboard: [StrokePlayStanding] = []
+    var grossTotalByPlayer: [String: Int] = [:]
+    var netTotalByPlayer: [String: Int] = [:]
+    var vsParByPlayer: [String: Int] = [:]
+    var lastOutput: StrokePlayHoleOutput?
+
+    var pillText: String {
+        guard let leader = leaderboard.first(where: { $0.rank == 1 }) else { return "—" }
+        let vsPar = leader.vsPar
+        if vsPar == 0 { return "E" }
+        return vsPar > 0 ? "+\(vsPar)" : "\(vsPar)"
+    }
+}
+
 // MARK: - ViewModel
 
 @MainActor
@@ -76,6 +91,7 @@ final class SaturdayScoringViewModel: ObservableObject {
     @Published var nassauState = NassauLiveState()
     @Published var stablefordState = StablefordLiveState()
     @Published var skinsState = SkinsLiveState()
+    @Published var strokePlayState = StrokePlayLiveState()
 
     // Replayed engine for press/roll state queries
     private var replayedScotchEngine: SixPointScotchEngine?
@@ -325,6 +341,32 @@ final class SaturdayScoringViewModel: ObservableObject {
                 netSkinsTotal: lastOutput?.netSkinsTotal ?? [:],
                 grossCarryover: lastOutput?.grossCarryover ?? 0,
                 netCarryover: lastOutput?.netCarryover ?? 0,
+                lastOutput: lastOutput
+            )
+        }
+
+        // Stroke play replay
+        if round.activeGames.contains(where: { $0.type == .strokePlay }) {
+            var engine = StrokePlayEngine()
+            var lastOutput: StrokePlayHoleOutput?
+
+            for entry in entries {
+                guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+                let scores = round.players.map { player -> StrokePlayPlayerScore in
+                    let gross = entry.grossByPlayerID[player.id] ?? stub.par
+                    let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                    return StrokePlayPlayerScore(playerID: player.id, gross: gross, handicapStrokes: strokes)
+                }
+                let input = StrokePlayHoleInput(holeNumber: entry.holeNumber, par: stub.par, scores: scores)
+                if let output = try? engine.scoreHole(input) {
+                    lastOutput = output
+                }
+            }
+            strokePlayState = StrokePlayLiveState(
+                leaderboard: lastOutput?.leaderboard ?? [],
+                grossTotalByPlayer: lastOutput?.grossTotalByPlayer ?? [:],
+                netTotalByPlayer: lastOutput?.netTotalByPlayer ?? [:],
+                vsParByPlayer: lastOutput?.vsParByPlayer ?? [:],
                 lastOutput: lastOutput
             )
         }

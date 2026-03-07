@@ -78,6 +78,8 @@ struct RoundSummaryView: View {
             StablefordSummaryView(round: round)
         case .skins:
             EmptyView()   // SkinsSummaryView added in Swarm 8.4
+        case .strokePlay:
+            StrokePlaySummaryView(round: round)
         }
     }
 }
@@ -346,6 +348,88 @@ struct ScotchSummaryView: View {
 }
 
 // MARK: - Stableford Leaderboard
+
+struct StrokePlaySummaryView: View {
+    let round: SaturdayRound
+
+    private var leaderboard: [(player: PlayerSnapshot, grossTotal: Int, netTotal: Int, vsPar: Int)] {
+        var engine = StrokePlayEngine()
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        var lastOutput: StrokePlayHoleOutput?
+        for entry in entries {
+            guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+            let scores = round.players.map { player -> StrokePlayPlayerScore in
+                let gross = entry.grossByPlayerID[player.id] ?? stub.par
+                let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                return StrokePlayPlayerScore(playerID: player.id, gross: gross, handicapStrokes: strokes)
+            }
+            if let output = try? engine.scoreHole(StrokePlayHoleInput(holeNumber: entry.holeNumber, par: stub.par, scores: scores)) {
+                lastOutput = output
+            }
+        }
+        guard let output = lastOutput else { return [] }
+        return output.leaderboard.compactMap { standing in
+            guard let player = round.players.first(where: { $0.id == standing.playerID }) else { return nil }
+            return (player: player, grossTotal: standing.grossTotal, netTotal: standing.netTotal, vsPar: standing.vsPar)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // Winner banner
+            if let top = leaderboard.first {
+                let vsParStr = top.vsPar == 0 ? "Even" : (top.vsPar > 0 ? "+\(top.vsPar)" : "\(top.vsPar)")
+                VStack(spacing: 6) {
+                    Text(top.player.name)
+                        .font(.title2.weight(.bold)).foregroundStyle(.teal)
+                    Text("\(vsParStr) · Net \(top.netTotal)")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            // Full leaderboard
+            VStack(spacing: 0) {
+                // Header
+                HStack(spacing: 12) {
+                    Text("").frame(width: 24)
+                    Text("Player").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Gross").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                    Text("Net").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                    Text("+/-").font(.caption).foregroundStyle(.secondary).frame(width: 36)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                Divider()
+                ForEach(Array(leaderboard.enumerated()), id: \.element.player.id) { index, row in
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.headline)
+                            .foregroundStyle(index == 0 ? .teal : .secondary)
+                            .frame(width: 24)
+                        Text(row.player.name)
+                            .font(.subheadline.weight(index == 0 ? .semibold : .regular))
+                        Spacer()
+                        Text("\(row.grossTotal)").font(.subheadline).frame(width: 44)
+                        Text("\(row.netTotal)").font(.subheadline.weight(.medium)).frame(width: 44)
+                        let vsParStr = row.vsPar == 0 ? "E" : (row.vsPar > 0 ? "+\(row.vsPar)" : "\(row.vsPar)")
+                        Text(vsParStr)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(row.vsPar < 0 ? .teal : (row.vsPar == 0 ? .primary : .secondary))
+                            .frame(width: 36)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    if index < leaderboard.count - 1 { Divider() }
+                }
+            }
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
 
 struct StablefordSummaryView: View {
     let round: SaturdayRound

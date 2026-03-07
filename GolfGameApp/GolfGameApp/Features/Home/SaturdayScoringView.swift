@@ -145,9 +145,10 @@ private struct SaturdayScoringContent: View {
 
     @ViewBuilder
     private var currentStandings: some View {
-        if !vm.round.holeEntries.isEmpty, !vm.isComplete {
+        let decisiveGames = vm.round.activeGames.filter { $0.type != .strokePlay }
+        if !vm.round.holeEntries.isEmpty, !vm.isComplete, !decisiveGames.isEmpty {
             VStack(spacing: 0) {
-                ForEach(Array(vm.round.activeGames.enumerated()), id: \.element.id) { idx, game in
+                ForEach(Array(decisiveGames.enumerated()), id: \.element.id) { idx, game in
                     if idx > 0 { Divider().padding(.leading, 16) }
                     HStack(alignment: .center) {
                         Text(game.type.title)
@@ -199,6 +200,18 @@ private struct SaturdayScoringContent: View {
         case .skins:
             Text(vm.skinsState.pillText)
                 .font(.headline.weight(.bold)).foregroundStyle(.green)
+        case .strokePlay:
+            let spLeaders = vm.strokePlayState.leaderboard.filter { $0.rank == 1 }
+            if let spLeader = spLeaders.first {
+                let vsParStr = spLeader.vsPar == 0 ? "E" : (spLeader.vsPar > 0 ? "+\(spLeader.vsPar)" : "\(spLeader.vsPar)")
+                if spLeaders.count == 1 {
+                    Text("\(vm.playerName(for: spLeader.playerID)) \(vsParStr)")
+                        .font(.headline.weight(.bold)).foregroundStyle(.teal)
+                } else {
+                    Text("T1 · \(vsParStr)")
+                        .font(.headline.weight(.bold)).foregroundStyle(.teal)
+                }
+            }
         }
     }
 
@@ -1284,6 +1297,16 @@ private struct GameStripPill: View {
         case .sixPointScotch: return vm.scotchState.pillText
         case .stableford: return vm.stablefordState.pillText
         case .skins: return vm.skinsState.pillText
+        case .strokePlay:
+            let leaders = vm.strokePlayState.leaderboard.filter { $0.rank == 1 }
+            guard let leader = leaders.first else { return "—" }
+            let vsPar = leader.vsPar
+            let vsParStr = vsPar == 0 ? "E" : (vsPar > 0 ? "+\(vsPar)" : "\(vsPar)")
+            if leaders.count == 1 {
+                return "\(vm.playerName(for: leader.playerID)) \(vsParStr)"
+            } else {
+                return "T1 · \(vsParStr)"
+            }
         }
     }
 
@@ -1293,6 +1316,7 @@ private struct GameStripPill: View {
         case .sixPointScotch: return .orange
         case .stableford: return .purple
         case .skins: return .green
+        case .strokePlay: return .teal
         }
     }
 
@@ -1400,6 +1424,26 @@ private struct GameStripPill: View {
                         Text("\(totals[player.id] ?? 0) skin(s)")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(idx == 0 ? .green : .primary)
+                    }
+                }
+            }
+        case .strokePlay:
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(vm.strokePlayState.leaderboard, id: \.playerID) { standing in
+                    HStack(spacing: 6) {
+                        Text("\(standing.rank)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(standing.rank == 1 ? Color.teal : .secondary)
+                            .frame(width: 14)
+                        Text(vm.playerName(for: standing.playerID)).font(.caption)
+                            .fontWeight(standing.rank == 1 ? .semibold : .regular)
+                        Spacer()
+                        let vsParStr = standing.vsPar == 0 ? "E" : (standing.vsPar > 0 ? "+\(standing.vsPar)" : "\(standing.vsPar)")
+                        Text(vsParStr)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(standing.vsPar < 0 ? .teal : (standing.vsPar == 0 ? .primary : .secondary))
+                        Text("(\(standing.netTotal))")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
             }

@@ -16,6 +16,7 @@ enum GameType: String, CaseIterable, Codable, Identifiable, Hashable {
     case nassau
     case stableford
     case skins
+    case strokePlay
 
     var id: String { rawValue }
 
@@ -25,13 +26,14 @@ enum GameType: String, CaseIterable, Codable, Identifiable, Hashable {
         case .nassau: return "Nassau"
         case .stableford: return "Stableford"
         case .skins: return "Skins"
+        case .strokePlay: return "Stroke Play"
         }
     }
 
     var scope: GameScope {
         switch self {
         case .stableford: return .event
-        case .sixPointScotch, .nassau, .skins: return .round
+        case .sixPointScotch, .nassau, .skins, .strokePlay: return .round
         }
     }
 }
@@ -833,12 +835,18 @@ struct SkinsGameConfig: Codable, Equatable {
     static let `default` = SkinsGameConfig(mode: .gross, carryoverEnabled: true, skinValue: 5)
 }
 
+struct StrokePlayGameConfig: Codable, Equatable {
+    // Tracks gross and net automatically. Future: add handicapAllowance percentage.
+    static let `default` = StrokePlayGameConfig()
+}
+
 struct SaturdayGameConfig: Codable, Identifiable, Equatable {
     var type: GameType
     var nassauConfig: NassauGameConfig?
     var scotchConfig: ScotchGameConfig?
     var stablefordConfig: StablefordGameConfig?
     var skinsConfig: SkinsGameConfig?
+    var strokePlayConfig: StrokePlayGameConfig?
 
     var id: String { type.rawValue }
 
@@ -856,6 +864,10 @@ struct SaturdayGameConfig: Codable, Identifiable, Equatable {
 
     static func skins(_ config: SkinsGameConfig = .default) -> SaturdayGameConfig {
         SaturdayGameConfig(type: .skins, skinsConfig: config)
+    }
+
+    static func strokePlay(_ config: StrokePlayGameConfig = .default) -> SaturdayGameConfig {
+        SaturdayGameConfig(type: .strokePlay, strokePlayConfig: config)
     }
 }
 
@@ -944,7 +956,7 @@ struct SaturdayRound: Codable, Identifiable {
             switch game.type {
             case .sixPointScotch: return true
             case .nassau: return game.nassauConfig?.format == .fourball
-            case .stableford, .skins: return false
+            case .stableford, .skins, .strokePlay: return false
             }
         }
     }

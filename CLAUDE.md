@@ -527,6 +527,47 @@ Survives app restarts — seeds once, never overwrites user changes.
 
 ---
 
+## Swarm 9 Additions (March 2026) — Scoring UX Polish
+
+### Swarm 9.1 — Sticky Score Hole Footer
+
+`SaturdayScoringView` restructured so `primaryActionButton` lives **outside** the `ScrollView`, pinned between scroll content and the game strip. It is always visible regardless of scroll position.
+
+- "Score Hole" (green, `.borderedProminent`) shown when round is active and `vm.canScoreHole`
+- "View Settlement" (blue, `NavigationLink` to `RoundSummaryView`) shown when `vm.isComplete`
+- `endRoundButton` ("End Round Early") moved to **very bottom** of scroll content (inside `ScrollView`), after all standings/audit content
+
+### Swarm 9.2 — Stepper Score Entry
+
+New `playerRowStepper` layout: single `HStack` row per player — name + stroke dots + HCP on the left, prox button center-right, `[−] [score box] [+]` on the right.
+
+- `−`/`+` from `nil` → sets to par; subsequent taps decrement/increment
+- Score box colored by `scoreTint(netDelta:)` when set; shows `—` when `nil`
+- Works at any Dynamic Type size (no `.dynamicTypeSize` cap needed)
+- Controlled by `@AppStorage("useStepperScoring") var useStepperScoring = true`
+- Dispatch: `playerRow(player:stub:)` routes to `playerRowStepper` or `playerRowGrid`
+- Original button-grid layout preserved as `playerRowGrid`
+
+### Swarm 9.3 — Settings Tab
+
+`ProfileView` in `HomeView.swift` (Settings tab) rewritten:
+
+- `@Binding var selectedTab: Int` — enables programmatic tab switching
+- `@EnvironmentObject var store: AppSessionStore` — reads active round state
+- **Return to Game** button: green `Form` section, only visible when `store.activeSaturdayRound != nil`; taps set `selectedTab = 0`
+- **Score Entry Style** toggle: `Toggle(isOn: $useStepperScoring)` with caption describing each mode
+- Tab renamed from "Profile" to "Settings" with `gearshape.fill` icon in `ContentView`
+
+### Swarm 9.4 — Skins in Game Selection Fixed
+
+`allGames` array in `SaturdayRoundSetupFlow.swift` was missing `.skins`. Fixed:
+
+```swift
+private let allGames: [GameType] = [.nassau, .sixPointScotch, .stableford, .skins]
+```
+
+---
+
 ## Commit Discipline
 
 - Scope commits to a Swarm (logical feature chunk), e.g. "Swarm 2.11: ..."
