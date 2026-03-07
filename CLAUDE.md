@@ -12,7 +12,7 @@ All source lives under `GolfGameApp/GolfGameApp/` (the inner folder). The outer 
 
 ## Active Branch
 
-All MVP Phase 1 work lives on `mvp-phase-1`. `main` is the stable integration target.
+MVP Phase 2 work lives on `mvp-phase-2`. `mvp-phase-1` is the stable Phase 1 baseline. `main` is the long-term integration target.
 
 ## Architecture Overview
 
@@ -45,6 +45,8 @@ All paths are relative to the repo root.
 | Course search (GolfCourseAPI.com) | `GolfGameApp/GolfGameApp/Core/Services/CourseSearchService.swift` |
 | Scorecard OCR parser | `GolfGameApp/GolfGameApp/Core/Services/ScorecardParser.swift` |
 | Vision OCR wrapper | `GolfGameApp/GolfGameApp/Core/Services/ScorecardScanner.swift` |
+| **Skins engine** | `GolfGameApp/GolfGameApp/Core/Services/SkinsEngine.swift` |
+| **Skins engine tests** | `GolfGameApp/GolfGameAppTests/SkinsEngineTests.swift` |
 | PRD master document | `docs/prd/mvp-phase-1.md` |
 | Six Point Scotch rules PRD | `docs/prd/games/six-point-scotch.md` |
 | Stableford rules PRD | `docs/prd/games/stableford-final.md` |
@@ -72,6 +74,8 @@ Key types:
 - `EventGroup` — `id`, `name`, `playerIDs: [String]`
 - `StablefordHoleResult` — `playerID`, `holeNumber`, `gross`, `net`, `points`, `strokes`
 - `strokeCountForHandicapIndex(_ handicapIndex: Double, onHoleStrokeIndex si: Int) -> Int` — shared helper used by both Scotch and Stableford engines
+- `SkinsGameConfig` — `mode: SkinsMode`, `carryoverEnabled: Bool`, `skinValue: Double`; defaults: `.gross`, carryover on, $5/skin
+- `SkinsLiveState` — `grossSkinsTotal: [String:Int]`, `netSkinsTotal: [String:Int]`, `grossCarryover: Int`, `netCarryover: Int`, `lastOutput: SkinsHoleOutput?`, computed `pillText: String`
 
 ## Course Setup Flow
 
@@ -446,6 +450,80 @@ func persistCompletedRounds()   // call after swipe-to-delete
 ### Swarm 6.5 — Manual Press Tests Fixed
 
 Three unit tests (`manualPressThrowsWhenAtLimit`, `manualPressAppearsInPressStatuses`, `settlementCountsPressesInTotalBets`) pre-dated the `trailingTeam()` fix and used `press: .teamB` in scenarios where B is leading. Updated to `press: .teamA` (A is trailing when B leads).
+
+---
+
+---
+
+## Swarm 8 Additions (March 2026) — Skins Game
+
+### Swarm 8.1 — SkinsEngine
+
+`GolfGameApp/GolfGameApp/Core/Services/SkinsEngine.swift` — pure skins engine following the existing Scotch/Stableford pattern.
+
+**Key types:**
+
+| Type | Purpose |
+|------|---------|
+| `SkinsActionError` | `.holeOutOfRange`, `.notEnoughPlayers`, `.duplicatePlayerID` |
+| `SkinsMode` | `.gross`, `.net`, `.both` — two fully independent carryover counters in `.both` mode |
+| `SkinsPlayerScore` | `playerID`, `gross`, `handicapStrokes` |
+| `SkinsHoleInput` | `holeNumber`, `par`, `scores`, `mode`, `carryoverEnabled` |
+| `SkinsHoleResult` | `winnerID?`, `skinsAwarded`, `isTie` |
+| `SkinsHoleOutput` | `grossResult`, `netResult`, `grossCarryover`, `netCarryover`, `grossSkinsTotal`, `netSkinsTotal`, `auditLog` |
+| `SkinsEngine` | Stateful mutating struct; `scoreHole(_ input:) throws -> SkinsHoleOutput` |
+
+**Rules implemented:**
+- Outright winner (exactly one lowest score) gets `1 + carryover` skins; carryover resets to 0
+- Tie with carryover on → `carryover++`; carryover off → skin voided (no accumulation)
+- `.both` mode: gross and net tracks are fully independent (separate carryover counters, separate running totals)
+- Net score = `gross − handicapStrokes`
+- Audit log: `"Hole N"`, `"Gross: X wins N skin(s)"`, `"Gross: tie · carryover now N"`, `"Gross: tie · skin void"` (same pattern for Net)
+
+**Validation guards (in order):**
+1. `holeNumber` must be in `1...18` → `.holeOutOfRange`
+2. At least 2 players → `.notEnoughPlayers`
+3. No duplicate player IDs → `.duplicatePlayerID`
+
+### Swarm 8.2 — SkinsEngineTests
+
+`GolfGameApp/GolfGameAppTests/SkinsEngineTests.swift` — 20 tests across 5 structs using Swift Testing (`@Test`, `#expect`).
+
+- `SkinsEngineErrorTests` — 4 error-path tests
+- `SkinsEngineGrossTests` — 8 gross-mode tests (outright win, tie/carryover, multi-hole accumulation, 4-player)
+- `SkinsEngineNetTests` — 2 net-mode tests
+- `SkinsEngineBothModeTests` — 2 both-mode tests (independent tracks, independent carryovers)
+- `SkinsEngineAuditLogTests` — 4 audit log format tests
+
+Run with: `xcodebuild test -scheme GolfGameApp -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing GolfGameAppTests`
+
+### Swarm 8.3 — Skins Wired into Saturday Mode + Buddy Seed
+
+**`GameType` enum** — added `.skins` case. Required exhaustive switch fixes in:
+- `SessionModels.swift` (`requiresTeams`)
+- `SaturdayRoundSetupFlow.swift` (`activeGameConfigs`, `isDisabled`, icon, color, description switches)
+- `SaturdayScoringView.swift` (`standingLabel`, `pillText`, `pillColor`, `expandedContent` switches)
+- `RoundSummaryView.swift` (`summaryContent` — placeholder `EmptyView()`)
+- `HistoryHomeView.swift` (`summaryContent` — placeholder `EmptyView()`)
+
+**`SaturdayScoringViewModel`** — added `@Published var skinsState = SkinsLiveState()` and skins replay block in `replayEngines()`. `isSkinsActive: Bool` computed property.
+
+**`SaturdayRoundSetupFlow`** — added `@Published var skinsConfig = SkinsGameConfig.default` to `SaturdaySetupViewModel`. Skins pill shows in game selection grid with `dollarsign.circle.fill` icon (green).
+
+**`SaturdayScoringView`** expanded content for `.skins` shows per-player skin count leaderboard.
+
+**`BuddyStore` seed** — `seedDefaults()` called on `init()` after `load()`. Seeds 4 buddies only when `buddies.isEmpty`:
+- DB (handicap 10)
+- JW (handicap 9.5)
+- BC (handicap 14.2)
+- JP (handicap 11.1)
+
+Survives app restarts — seeds once, never overwrites user changes.
+
+### Swarm 8.4 — Pending
+
+- `SkinsSummaryView` — settlement/payout screen in `RoundSummaryView` (replace `EmptyView()` placeholder)
+- Skins config UI in setup flow — user-configurable `mode`, `carryoverEnabled`, `skinValue`
 
 ---
 

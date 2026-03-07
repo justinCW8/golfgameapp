@@ -35,6 +35,7 @@ private struct SaturdayScoringContent: View {
     @State private var showEndRoundAlert = false
     @State private var showScorecard = false
     @State private var showScotchAudit = false
+    @AppStorage("useStepperScoring") private var useStepperScoring = true
 
     init(round: SaturdayRound, store: AppSessionStore, path: Binding<[SaturdayRoute]>) {
         self.round = round
@@ -53,11 +54,12 @@ private struct SaturdayScoringContent: View {
                     scotchActions
                     nassauActions
                     scoreEntryGrid
-                    actionButtons
+                    secondaryActions
                     matchDecidedBanner
                     scotchAudit
                     stablefordStandings
                     scorecardButton
+                    endRoundButton
                 }
                 .padding(16)
             }
@@ -69,6 +71,10 @@ private struct SaturdayScoringContent: View {
             }
         }
 
+            Divider()
+            primaryActionButton
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             Divider()
             gameStrip
         }
@@ -258,11 +264,123 @@ private struct SaturdayScoringContent: View {
         .background(color.opacity(0.06))
     }
 
+    @ViewBuilder
     private func playerRow(player: PlayerSnapshot, stub: CourseHoleStub) -> some View {
+        if useStepperScoring {
+            playerRowStepper(player: player, stub: stub)
+        } else {
+            playerRowGrid(player: player, stub: stub)
+        }
+    }
+
+    private func playerRowStepper(player: PlayerSnapshot, stub: CourseHoleStub) -> some View {
         let strokes = vm.handicapStrokes(for: player, on: stub)
         let grossText = vm.grossInputs[player.id] ?? ""
         let gross = Int(grossText)
-        let hasGIR = gross.map { $0 <= stub.par } ?? false  // natural GIR: gross ≤ par, no strokes
+        let hasGIR = gross.map { $0 <= stub.par } ?? false
+        let isProxSelected = vm.proxWinnerID == player.id
+        let par = stub.par
+
+        return HStack(spacing: 10) {
+            // Left: name + HCP + result
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(player.name)
+                        .font(.subheadline.weight(.semibold))
+                    if strokes > 0 {
+                        HStack(spacing: 2) {
+                            ForEach(0..<min(strokes, 3), id: \.self) { _ in
+                                Circle().fill(Color.green).frame(width: 5, height: 5)
+                            }
+                            if strokes > 3 {
+                                Text("+\(strokes-3)").font(.caption2).foregroundStyle(.green)
+                            }
+                        }
+                    }
+                }
+                HStack(spacing: 4) {
+                    Text(String(format: "HCP %.0f", player.handicapIndex))
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if let g = gross, g > 0 {
+                        let net = g - strokes
+                        let delta = net - par
+                        Text("·").font(.caption2).foregroundStyle(.tertiary)
+                        if vm.round.activeGames.contains(where: { $0.type == .stableford }) {
+                            let pts = StablefordEngine.scoreHole(.init(gross: g, par: par, handicapStrokes: strokes)).points
+                            Text(scoreName(delta)).font(.caption2.weight(.semibold)).foregroundStyle(scoreColor(delta))
+                            Text("· \(pts)pt").font(.caption2).foregroundStyle(.secondary)
+                        } else {
+                            Text("Net \(net)").font(.caption2).foregroundStyle(.secondary)
+                            Text("·").font(.caption2).foregroundStyle(.tertiary)
+                            Text(scoreName(delta)).font(.caption2.weight(.semibold)).foregroundStyle(scoreColor(delta))
+                        }
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Prox button (Scotch only)
+            if vm.isScotchActive {
+                Button { vm.proxWinnerID = isProxSelected ? nil : player.id } label: {
+                    Text("Prox").font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(isProxSelected ? .orange : .gray)
+                .controlSize(.small)
+                .disabled(!hasGIR)
+            }
+
+            // Stepper
+            HStack(spacing: 4) {
+                Button {
+                    if let cur = gross { vm.grossInputs[player.id] = cur > 1 ? String(cur - 1) : "1" }
+                    else { vm.grossInputs[player.id] = String(par) }
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.callout.weight(.semibold))
+                        .frame(width: 40, height: 44)
+                        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+
+                let netDelta = gross.map { $0 - strokes - par } ?? 0
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(gross != nil ? scoreTint(netDelta: netDelta) : Color(.tertiarySystemGroupedBackground))
+                    if let g = gross {
+                        Text("\(g)")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
+                    } else {
+                        Text("—")
+                            .font(.title3)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .frame(width: 44, height: 44)
+
+                Button {
+                    if let cur = gross { vm.grossInputs[player.id] = String(cur + 1) }
+                    else { vm.grossInputs[player.id] = String(par) }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.callout.weight(.semibold))
+                        .frame(width: 40, height: 44)
+                        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private func playerRowGrid(player: PlayerSnapshot, stub: CourseHoleStub) -> some View {
+        let strokes = vm.handicapStrokes(for: player, on: stub)
+        let grossText = vm.grossInputs[player.id] ?? ""
+        let gross = Int(grossText)
+        let hasGIR = gross.map { $0 <= stub.par } ?? false
         let isProxSelected = vm.proxWinnerID == player.id
         let par = stub.par
         let lo = max(1, par - 2)
@@ -271,10 +389,8 @@ private struct SaturdayScoringContent: View {
         let overflowSelected = (gross ?? -1) >= overflowMin
 
         return VStack(alignment: .leading, spacing: 4) {
-            // Player info row
             HStack(spacing: 6) {
-                Text(player.name)
-                    .font(.subheadline.weight(.medium))
+                Text(player.name).font(.subheadline.weight(.medium))
                 HStack(spacing: 3) {
                     Text(String(format: "HCP %.0f", player.handicapIndex))
                         .font(.caption2).foregroundStyle(.secondary)
@@ -299,7 +415,6 @@ private struct SaturdayScoringContent: View {
                 }
             }
 
-            // Score buttons
             HStack(spacing: 5) {
                 ForEach(scores, id: \.self) { score in
                     let isSelected = gross == score
@@ -316,7 +431,6 @@ private struct SaturdayScoringContent: View {
                     }
                     .buttonStyle(.plain)
                 }
-                // Overflow (par+3+): shows stepper when active
                 if overflowSelected {
                     HStack(spacing: 3) {
                         Button {
@@ -354,14 +468,12 @@ private struct SaturdayScoringContent: View {
                 }
             }
 
-            // Result label
             if let g = gross, g > 0 {
                 let net = g - strokes
                 let delta = net - par
-                let isStablefordActive = vm.round.activeGames.contains(where: { $0.type == .stableford })
                 HStack(spacing: 4) {
                     Spacer()
-                    if isStablefordActive {
+                    if vm.round.activeGames.contains(where: { $0.type == .stableford }) {
                         let pts = StablefordEngine.scoreHole(.init(gross: g, par: par, handicapStrokes: strokes)).points
                         Text(scoreName(delta)).font(.caption2.weight(.semibold)).foregroundStyle(scoreColor(delta))
                         Text("·").font(.caption2).foregroundStyle(.tertiary)
@@ -791,33 +903,8 @@ private struct SaturdayScoringContent: View {
 
     // MARK: - Action Buttons
 
-    private var actionButtons: some View {
-        VStack(spacing: 10) {
-            if !vm.isComplete {
-                Button {
-                    vm.scoreHole()
-                } label: {
-                    Text("Score Hole")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .controlSize(.large)
-                .disabled(!vm.canScoreHole)
-            }
-
-            if !vm.round.holeEntries.isEmpty {
-                Button {
-                    vm.editPreviousHole()
-                } label: {
-                    Text(vm.isComplete ? "Edit Last Hole" : "Edit Previous Hole")
-                        .font(.subheadline)
-                }
-                .foregroundStyle(.secondary)
-            }
-
+    private var primaryActionButton: some View {
+        Group {
             if vm.isComplete {
                 NavigationLink {
                     RoundSummaryView(round: vm.round, store: store) {
@@ -833,12 +920,45 @@ private struct SaturdayScoringContent: View {
                 .tint(.blue)
                 .controlSize(.large)
             } else {
-                Button("End Round Early") {
-                    showEndRoundAlert = true
+                Button {
+                    vm.scoreHole()
+                } label: {
+                    Text("Score Hole")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
                 }
-                .font(.caption)
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .controlSize(.large)
+                .disabled(!vm.canScoreHole)
+            }
+        }
+    }
+
+    private var secondaryActions: some View {
+        VStack(spacing: 10) {
+            if !vm.round.holeEntries.isEmpty {
+                Button {
+                    vm.editPreviousHole()
+                } label: {
+                    Text(vm.isComplete ? "Edit Last Hole" : "Edit Previous Hole")
+                        .font(.subheadline)
+                }
                 .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var endRoundButton: some View {
+        if !vm.isComplete {
+            Button("End Round Early") {
+                showEndRoundAlert = true
+            }
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .padding(.top, 8)
         }
     }
 

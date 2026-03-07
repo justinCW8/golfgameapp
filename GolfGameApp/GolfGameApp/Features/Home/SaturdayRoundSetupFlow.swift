@@ -634,7 +634,7 @@ private struct SetupScreen2_Games: View {
     @ObservedObject var vm: SaturdaySetupViewModel
     @Binding var path: [SaturdayRoute]
 
-    private let allGames: [GameType] = [.nassau, .sixPointScotch, .stableford]
+    private let allGames: [GameType] = [.nassau, .sixPointScotch, .stableford, .skins]
 
     var body: some View {
         ScrollView {

@@ -238,14 +238,43 @@ struct HomeView: View {
 // MARK: - Profile placeholder
 
 struct ProfileView: View {
+    @Binding var selectedTab: Int
+    @EnvironmentObject private var store: AppSessionStore
+    @AppStorage("useStepperScoring") private var useStepperScoring = true
+
     var body: some View {
         NavigationStack {
-            ContentUnavailableView(
-                "Profile",
-                systemImage: "person.circle",
-                description: Text("Coming soon.")
-            )
-            .navigationTitle("Profile")
+            Form {
+                if store.activeSaturdayRound != nil {
+                    Section {
+                        Button {
+                            selectedTab = 0
+                        } label: {
+                            Label("Return to Game", systemImage: "flag.fill")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 4)
+                        }
+                        .listRowBackground(Color.green)
+                    }
+                }
+
+                Section {
+                    Toggle(isOn: $useStepperScoring) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Stepper Input")
+                            Text(useStepperScoring ? "− score +" : "Tap a score button")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Score Entry Style")
+                } footer: {
+                    Text("Stepper uses + / − buttons — one row per player, works at any text size. Button grid shows all scores at once.")
+                }
+            }
+            .navigationTitle("Settings")
         }
     }
 }
