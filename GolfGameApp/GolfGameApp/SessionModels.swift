@@ -15,6 +15,7 @@ enum GameType: String, CaseIterable, Codable, Identifiable, Hashable {
     case sixPointScotch
     case nassau
     case stableford
+    case skins
 
     var id: String { rawValue }
 
@@ -23,13 +24,14 @@ enum GameType: String, CaseIterable, Codable, Identifiable, Hashable {
         case .sixPointScotch: return "Six Point Scotch"
         case .nassau: return "Nassau"
         case .stableford: return "Stableford"
+        case .skins: return "Skins"
         }
     }
 
     var scope: GameScope {
         switch self {
         case .stableford: return .event
-        case .sixPointScotch, .nassau: return .round
+        case .sixPointScotch, .nassau, .skins: return .round
         }
     }
 }
@@ -86,7 +88,20 @@ final class BuddyStore: ObservableObject {
     @Published var buddies: [Buddy] = []
     private static let key = "golf_buddies"
 
-    init() { load() }
+    init() {
+        load()
+        if buddies.isEmpty { seedDefaults() }
+    }
+
+    private func seedDefaults() {
+        let defaults: [(String, Double)] = [
+            ("DB", 10.0), ("JW", 9.5), ("BC", 14.2), ("JP", 11.1)
+        ]
+        for (name, hi) in defaults {
+            buddies.append(Buddy(name: name, handicapIndex: hi))
+        }
+        save()
+    }
 
     func add(name: String, handicapIndex: Double) {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
@@ -810,11 +825,20 @@ struct StablefordGameConfig: Codable, Equatable {
     static let `default` = StablefordGameConfig(scoringType: .standard)
 }
 
+struct SkinsGameConfig: Codable, Equatable {
+    var mode: SkinsMode
+    var carryoverEnabled: Bool
+    /// Dollar value per skin (used in settlement).
+    var skinValue: Double
+    static let `default` = SkinsGameConfig(mode: .gross, carryoverEnabled: true, skinValue: 5)
+}
+
 struct SaturdayGameConfig: Codable, Identifiable, Equatable {
     var type: GameType
     var nassauConfig: NassauGameConfig?
     var scotchConfig: ScotchGameConfig?
     var stablefordConfig: StablefordGameConfig?
+    var skinsConfig: SkinsGameConfig?
 
     var id: String { type.rawValue }
 
@@ -828,6 +852,10 @@ struct SaturdayGameConfig: Codable, Identifiable, Equatable {
 
     static func stableford(_ config: StablefordGameConfig = .default) -> SaturdayGameConfig {
         SaturdayGameConfig(type: .stableford, stablefordConfig: config)
+    }
+
+    static func skins(_ config: SkinsGameConfig = .default) -> SaturdayGameConfig {
+        SaturdayGameConfig(type: .skins, skinsConfig: config)
     }
 }
 
@@ -916,7 +944,7 @@ struct SaturdayRound: Codable, Identifiable {
             switch game.type {
             case .sixPointScotch: return true
             case .nassau: return game.nassauConfig?.format == .fourball
-            case .stableford: return false
+            case .stableford, .skins: return false
             }
         }
     }

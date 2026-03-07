@@ -76,6 +76,8 @@ struct RoundSummaryView: View {
             }
         case .stableford:
             StablefordSummaryView(round: round)
+        case .skins:
+            EmptyView()   // SkinsSummaryView added in Swarm 8.4
         }
     }
 }

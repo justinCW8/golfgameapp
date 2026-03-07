@@ -190,6 +190,9 @@ private struct SaturdayScoringContent: View {
                 Text("\(vm.playerName(for: top.key)) +\(top.value)")
                     .font(.headline.weight(.bold)).foregroundStyle(.green)
             }
+        case .skins:
+            Text(vm.skinsState.pillText)
+                .font(.headline.weight(.bold)).foregroundStyle(.green)
         }
     }
 
@@ -1160,6 +1163,7 @@ private struct GameStripPill: View {
         case .nassau: return nassauDisplayString(vm.nassauState.overallStatus)
         case .sixPointScotch: return vm.scotchState.pillText
         case .stableford: return vm.stablefordState.pillText
+        case .skins: return vm.skinsState.pillText
         }
     }
 
@@ -1168,6 +1172,7 @@ private struct GameStripPill: View {
         case .nassau: return .blue
         case .sixPointScotch: return .orange
         case .stableford: return .purple
+        case .skins: return .green
         }
     }
 
@@ -1256,6 +1261,25 @@ private struct GameStripPill: View {
                         Text("\(vm.stablefordState.pointsByPlayerID[player.id] ?? 0) pts")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(idx == 0 ? .purple : .primary)
+                    }
+                }
+            }
+        case .skins:
+            let totals = vm.skinsState.grossSkinsTotal.isEmpty ? vm.skinsState.netSkinsTotal : vm.skinsState.grossSkinsTotal
+            let sorted2 = vm.round.players.sorted { (totals[$0.id] ?? 0) > (totals[$1.id] ?? 0) }
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(sorted2.enumerated()), id: \.element.id) { idx, player in
+                    HStack(spacing: 6) {
+                        Text("\(idx + 1)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(idx == 0 ? .green : .secondary)
+                            .frame(width: 14)
+                        Text(player.name).font(.caption)
+                            .fontWeight(idx == 0 ? .semibold : .regular)
+                        Spacer()
+                        Text("\(totals[player.id] ?? 0) skin(s)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(idx == 0 ? .green : .primary)
                     }
                 }
             }

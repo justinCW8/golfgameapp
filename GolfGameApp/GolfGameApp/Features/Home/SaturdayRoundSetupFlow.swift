@@ -24,6 +24,7 @@ final class SaturdaySetupViewModel: ObservableObject {
     @Published var nassauConfig = NassauGameConfig.default
     @Published var scotchConfig = ScotchGameConfig.default
     @Published var stablefordConfig = StablefordGameConfig.default
+    @Published var skinsConfig = SkinsGameConfig.default
 
     init() {
         playerDrafts = (0..<4).map { _ in PlayerDraft() }
@@ -109,6 +110,7 @@ final class SaturdaySetupViewModel: ObservableObject {
             case .nassau: return .nassau(nassauConfig)
             case .sixPointScotch: return .scotch(scotchConfig)
             case .stableford: return .stableford(stablefordConfig)
+            case .skins: return .skins(skinsConfig)
             }
         }
     }
@@ -660,7 +662,7 @@ private struct SetupScreen2_Games: View {
     private func gameDisabled(_ game: GameType) -> Bool {
         switch game {
         case .sixPointScotch: return !vm.scotchEligible
-        case .nassau, .stableford: return false
+        case .nassau, .stableford, .skins: return false
         }
     }
 
@@ -750,6 +752,7 @@ private struct GameSelectCard: View {
         case .nassau: return "trophy.fill"
         case .sixPointScotch: return "flame.fill"
         case .stableford: return "list.number"
+        case .skins: return "dollarsign.circle.fill"
         }
     }
 
@@ -758,6 +761,7 @@ private struct GameSelectCard: View {
         case .nassau: return .yellow
         case .sixPointScotch: return .orange
         case .stableford: return .blue
+        case .skins: return .green
         }
     }
 
@@ -766,6 +770,7 @@ private struct GameSelectCard: View {
         case .nassau: return "Front · Back · Overall match play"
         case .sixPointScotch: return "Points per hole · 2v2 teams required"
         case .stableford: return "Individual points scoring"
+        case .skins: return "Hole-by-hole individual skins"
         }
     }
 }

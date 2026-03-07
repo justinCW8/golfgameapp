@@ -37,6 +37,20 @@ struct StablefordLiveState {
     }
 }
 
+struct SkinsLiveState {
+    var grossSkinsTotal: [String: Int] = [:]
+    var netSkinsTotal: [String: Int] = [:]
+    var grossCarryover: Int = 0
+    var netCarryover: Int = 0
+    var lastOutput: SkinsHoleOutput?
+
+    var pillText: String {
+        let totals = grossSkinsTotal.isEmpty ? netSkinsTotal : grossSkinsTotal
+        guard let top = totals.max(by: { $0.value < $1.value }), top.value > 0 else { return "—" }
+        return "\(top.value) skin\(top.value == 1 ? "" : "s")"
+    }
+}
+
 // MARK: - ViewModel
 
 @MainActor
@@ -61,6 +75,7 @@ final class SaturdayScoringViewModel: ObservableObject {
     @Published var scotchState = ScotchLiveState()
     @Published var nassauState = NassauLiveState()
     @Published var stablefordState = StablefordLiveState()
+    @Published var skinsState = SkinsLiveState()
 
     // Replayed engine for press/roll state queries
     private var replayedScotchEngine: SixPointScotchEngine?
@@ -280,6 +295,39 @@ final class SaturdayScoringViewModel: ObservableObject {
             }
             stablefordState = StablefordLiveState(pointsByPlayerID: pointsByPlayerID)
         }
+
+        // Skins replay
+        if let skinsGame = round.activeGames.first(where: { $0.type == .skins }),
+           let skinsConfig = skinsGame.skinsConfig {
+            var engine = SkinsEngine()
+            var lastOutput: SkinsHoleOutput?
+
+            for entry in entries {
+                guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+                let scores = round.players.map { player -> SkinsPlayerScore in
+                    let gross = entry.grossByPlayerID[player.id] ?? (stub.par + 2)
+                    let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                    return SkinsPlayerScore(playerID: player.id, gross: gross, handicapStrokes: strokes)
+                }
+                let input = SkinsHoleInput(
+                    holeNumber: entry.holeNumber,
+                    par: stub.par,
+                    scores: scores,
+                    mode: skinsConfig.mode,
+                    carryoverEnabled: skinsConfig.carryoverEnabled
+                )
+                if let output = try? engine.scoreHole(input) {
+                    lastOutput = output
+                }
+            }
+            skinsState = SkinsLiveState(
+                grossSkinsTotal: lastOutput?.grossSkinsTotal ?? [:],
+                netSkinsTotal: lastOutput?.netSkinsTotal ?? [:],
+                grossCarryover: lastOutput?.grossCarryover ?? 0,
+                netCarryover: lastOutput?.netCarryover ?? 0,
+                lastOutput: lastOutput
+            )
+        }
     }
 
     // MARK: - Helpers
@@ -343,6 +391,10 @@ final class SaturdayScoringViewModel: ObservableObject {
 
     var isScotchActive: Bool {
         round.activeGames.contains(where: { $0.type == .sixPointScotch })
+    }
+
+    var isSkinsActive: Bool {
+        round.activeGames.contains(where: { $0.type == .skins })
     }
 
     // MARK: - Nassau Press State
