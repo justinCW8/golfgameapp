@@ -259,7 +259,7 @@ private struct SaturdayScoringContent: View {
         let strokes = vm.handicapStrokes(for: player, on: stub)
         let grossText = vm.grossInputs[player.id] ?? ""
         let gross = Int(grossText)
-        let hasGIR = gross.map { $0 - strokes <= stub.par } ?? false
+        let hasGIR = gross.map { $0 <= stub.par } ?? false  // natural GIR: gross ≤ par, no strokes
         let isProxSelected = vm.proxWinnerID == player.id
         let par = stub.par
         let lo = max(1, par - 2)

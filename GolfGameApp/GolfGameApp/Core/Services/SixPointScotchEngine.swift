@@ -97,7 +97,8 @@ struct SixPointScotchEngine {
         let proxW = proxWinner(
             par: input.par,
             teamAProxFeet: input.teamAProxFeet, teamANet: input.teamANetScores,
-            teamBProxFeet: input.teamBProxFeet, teamBNet: input.teamBNetScores
+            teamBProxFeet: input.teamBProxFeet, teamBNet: input.teamBNetScores,
+            teamAGross: input.teamAGrossScores, teamBGross: input.teamBGrossScores
         )
 
         applyBucket(points: 2, winner: lowManW,  toA: &rawA, toB: &rawB)
@@ -191,16 +192,15 @@ struct SixPointScotchEngine {
         return aHasBirdie ? .teamA : .teamB
     }
 
-    /// Only award prox to a team if at least one player hit GIR (net ≤ par).
-    /// A player's net score equals gross minus strokes received; GIR in net terms
-    /// means they could have been on in (par-2) and 2-putted → net ≤ par.
+    /// Only award prox to a team if at least one player hit natural GIR (gross ≤ par — no handicap strokes).
     private func proxWinner(
         par: Int,
         teamAProxFeet: Double?, teamANet: [Int],
-        teamBProxFeet: Double?, teamBNet: [Int]
+        teamBProxFeet: Double?, teamBNet: [Int],
+        teamAGross: [Int], teamBGross: [Int]
     ) -> TeamSide? {
-        let aEligible = teamANet.contains(where: { $0 <= par })
-        let bEligible = teamBNet.contains(where: { $0 <= par })
+        let aEligible = teamAGross.contains(where: { $0 <= par })
+        let bEligible = teamBGross.contains(where: { $0 <= par })
         let aProx: Double? = aEligible ? teamAProxFeet : nil
         let bProx: Double? = bEligible ? teamBProxFeet : nil
         switch (aProx, bProx) {
