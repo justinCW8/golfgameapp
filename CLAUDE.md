@@ -391,10 +391,69 @@ Audit log format per hole:
 
 Compact per-game pill row. Scotch pill shows last-hole winner and points. Press/Roll/Re-roll shown as orange pill badges inside the expanded `scotchAudit` card, not inside the pill itself. Front/Back/Total columns were removed — do not add them back.
 
+---
+
+## Swarm 6 Additions (March 2026)
+
+### Swarm 6.1 — Scorecard Gross + Net Display
+
+`ScorecardSheet` in `SaturdayScoringView.swift` shows a PGA-style scorecard with **two rows per player cell**: gross score (via `PGAScoreCell`) and small net score below.
+
+- `PGAScoreCell` — eagle/birdie/bogey circle/square notation relative to par
+- Net = gross − `strokeCountForHandicapIndex(handicapIndex, onHoleStrokeIndex:)`
+- Out/In/Tot columns show gross total + net total stacked
+- `ScorecardSheet` and `PGAScoreCell` are **internal** (not `private`) so `HistoryRoundDetailView` can reuse them
+
+### Swarm 6.2 — Nassau Display Strings Use Real Team Initials
+
+`NassauMatchStatus.displayString` hardcodes "A" and "B". All views use a `nassauDisplayString(_ status:)` helper instead that substitutes real player first-name initials (e.g. "JP/BC 1UP" instead of "A 1UP"). Added to both `SaturdayScoringContent` and `GameStripPill`. `RoundSummaryView` uses `teamInitials(_ players: [PlayerSnapshot]) -> String`.
+
+### Swarm 6.3 — Nassau Engine Fix: `trailingTeam()` Inverted
+
+`NassauEngine.trailingTeam(in:)` had inverted logic. Fixed:
+
+```swift
+private func trailingTeam(in ledger: NassauSegmentLedger) -> TeamSide? {
+    if ledger.aUp > 0 { return .teamB }  // A leads -> B trails
+    if ledger.aUp < 0 { return .teamA }  // B leads -> A trails
+    return nil
+}
+```
+
+Only the **trailing team** may manually press — `manualPressRequiresTrailingTeam` thrown if leading team attempts. Also fixed `onChange(of:perform:)` deprecation to zero-argument closure form.
+
+### Swarm 6.4 — Match-Decided Banner + Team Initials in Summary + History Tab
+
+**Match-decided banner:** When `vm.nassauState.overallStatus.isClosed == true`, a green banner appears in `SaturdayScoringView` with a "Settle Up Now" `NavigationLink` to `RoundSummaryView`.
+
+**RoundSummaryView:** "Team A" / "Team B" replaced with `teamInitials(round.teamAPlayers)` / `teamInitials(round.teamBPlayers)` throughout `NassauSummaryView` and `ScotchSummaryView`.
+
+**History tab persistence:** `AppSessionStore.clearSaturdayRound()` archives the completed round to `completedRounds: [SaturdayRound]` before clearing. `AppSessionSnapshot` includes `completedRounds`. `SaturdayRound` now conforms to `Identifiable`.
+
+```swift
+@Published var completedRounds: [SaturdayRound] = []
+func persistCompletedRounds()   // call after swipe-to-delete
+```
+
+**History UI** (`Features/History/HistoryHomeView.swift`):
+- `HistoryHomeView` — empty state or list of completed rounds; swipe-to-delete
+- `HistoryRoundRow` — course name, date, player names, game badges, holes played
+- `HistoryRoundDetailView` — header + settlement tabs (reuses `NassauSummaryView` / `ScotchSummaryView` / `StablefordSummaryView`) + `ScorecardSheet`
+- `NassauSummaryView`, `ScotchSummaryView`, `StablefordSummaryView` changed from `private` to `internal` for reuse
+
+**History tab key file:** `GolfGameApp/GolfGameApp/Features/History/HistoryHomeView.swift`
+
+### Swarm 6.5 — Manual Press Tests Fixed
+
+Three unit tests (`manualPressThrowsWhenAtLimit`, `manualPressAppearsInPressStatuses`, `settlementCountsPressesInTotalBets`) pre-dated the `trailingTeam()` fix and used `press: .teamB` in scenarios where B is leading. Updated to `press: .teamA` (A is trailing when B leads).
+
+---
+
 ## Commit Discipline
 
 - Scope commits to a Swarm (logical feature chunk), e.g. "Swarm 2.11: ..."
 - Build must be clean before committing; validate on simulator
+- Run tests: `xcodebuild test -scheme GolfGameApp -destination 'platform=iOS Simulator,name=iPhone 17'`
 - Stage only relevant `.swift` files — never commit `DerivedData`, `.xcuserstate`, or `UserDefaults` plist files
 - User asks → then we commit. Do not auto-commit.
 - Descriptive messages referencing the Swarm number
