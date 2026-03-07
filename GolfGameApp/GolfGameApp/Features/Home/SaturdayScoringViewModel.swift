@@ -77,8 +77,7 @@ struct StrokePlayLiveState {
            let teamLeader = teamLeaderboard.first(where: { $0.rank == 1 }) {
             let vsPar = teamLeader.vsPar
             let vsParStr = vsPar == 0 ? "E" : (vsPar > 0 ? "+\(vsPar)" : "\(vsPar)")
-            let teamName = teamDisplayNameByID[teamLeader.teamID] ?? teamLeader.teamName
-            return "\(teamName) \(vsParStr)"
+            return "\(teamLeader.teamName) · \(vsParStr)"
         }
         
         // For individual, show individual leader

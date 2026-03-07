@@ -33,6 +33,7 @@ private struct SaturdayScoringContent: View {
     @Binding var path: [SaturdayRoute]
     @StateObject private var vm: SaturdayScoringViewModel
     @State private var showEndRoundAlert = false
+    @State private var showEditPreviousAlert = false
     @State private var showScorecard = false
     @State private var showScotchAudit = false
     @AppStorage("useStepperScoring") private var useStepperScoring = true
@@ -92,6 +93,14 @@ private struct SaturdayScoringContent: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Mark this round as complete and return home.")
+        }
+        .alert("Edit Previous Hole?", isPresented: $showEditPreviousAlert) {
+            Button("Edit Hole \(max(1, vm.currentHole - 1))") {
+                vm.editPreviousHole()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove the scores for hole \(max(1, vm.currentHole - 1)) so you can re-enter them.")
         }
     }
 
@@ -234,6 +243,36 @@ private struct SaturdayScoringContent: View {
                         playerRow(player: player, stub: stub)
                         if player.id != vm.round.teamBPlayers.last?.id {
                             Divider().padding(.leading, 16)
+                        }
+                    }
+                } else if let spGame = vm.round.activeGames.first(where: { $0.type == .strokePlay }),
+                          let spConfig = spGame.strokePlayConfig,
+                          spConfig.format == .bestBall2v2,
+                          !spConfig.bestBallPairings.isEmpty {
+                    let pairingColors: [Color] = [.teal, .purple]
+                    ForEach(Array(spConfig.bestBallPairings.enumerated()), id: \.element.id) { idx, pairing in
+                        let teamColor = pairingColors[idx % pairingColors.count]
+                        let teamStanding = vm.strokePlayState.teamLeaderboard.first(where: { $0.teamID == pairing.id })
+                        HStack {
+                            Text(pairing.teamName)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(teamColor)
+                            Spacer()
+                            if let standing = teamStanding {
+                                let vsParStr = standing.vsPar == 0 ? "E" : (standing.vsPar > 0 ? "+\(standing.vsPar)" : "\(standing.vsPar)")
+                                Text(vsParStr)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(teamColor)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                        let pairingPlayers = vm.round.players.filter { pairing.playerIDs.contains($0.id) }
+                        ForEach(pairingPlayers) { player in
+                            playerRow(player: player, stub: stub)
+                            if player.id != pairingPlayers.last?.id {
+                                Divider().padding(.leading, 16)
+                            }
                         }
                     }
                 } else {
@@ -953,12 +992,13 @@ private struct SaturdayScoringContent: View {
         VStack(spacing: 10) {
             if !vm.round.holeEntries.isEmpty {
                 Button {
-                    vm.editPreviousHole()
+                    showEditPreviousAlert = true
                 } label: {
-                    Text(vm.isComplete ? "Edit Last Hole" : "Edit Previous Hole")
-                        .font(.subheadline)
+                    Label(vm.isComplete ? "Edit Last Hole" : "Edit Previous Hole", systemImage: "pencil")
+                        .frame(maxWidth: .infinity)
                 }
-                .foregroundStyle(.secondary)
+                .buttonStyle(.bordered)
+                .tint(.orange)
             }
         }
     }
@@ -966,12 +1006,15 @@ private struct SaturdayScoringContent: View {
     @ViewBuilder
     private var endRoundButton: some View {
         if !vm.isComplete {
-            Button("End Round Early") {
+            Button {
                 showEndRoundAlert = true
+            } label: {
+                Label("End Round Early", systemImage: "flag.checkered")
+                    .frame(maxWidth: .infinity)
             }
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .padding(.top, 8)
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .padding(.top, 4)
         }
     }
 
@@ -1298,12 +1341,25 @@ private struct GameStripPill: View {
         case .stableford: return vm.stablefordState.pillText
         case .skins: return vm.skinsState.pillText
         case .strokePlay:
-            // For 2v2 and Team formats, use the state's pillText (shows team leader)
-            if let cfg = vm.strokePlayState.config, cfg.format != .individual {
+            // teamBestBall — single team vs par
+            if let cfg = vm.strokePlayState.config, cfg.format == .teamBestBall {
                 return vm.strokePlayState.pillText
             }
-            
-            // For individual format, show player name
+            // 2v2 best ball — show both team scores: "A −3 · B −3"
+            if let spGame = vm.round.activeGames.first(where: { $0.type == .strokePlay }),
+               let spConfig = spGame.strokePlayConfig,
+               spConfig.format == .bestBall2v2,
+               !vm.strokePlayState.teamLeaderboard.isEmpty {
+                let parts = spConfig.bestBallPairings.map { pairing -> String in
+                    let standing = vm.strokePlayState.teamLeaderboard.first(where: { $0.teamID == pairing.id })
+                    let vsPar = standing?.vsPar ?? 0
+                    let vsParStr = vsPar == 0 ? "E" : (vsPar > 0 ? "+\(vsPar)" : "\(vsPar)")
+                    let shortName = pairing.teamName.components(separatedBy: " ").last ?? pairing.teamName
+                    return "\(shortName) \(vsParStr)"
+                }
+                return parts.joined(separator: " · ")
+            }
+            // Individual: show individual leader
             let leaders = vm.strokePlayState.leaderboard.filter { $0.rank == 1 }
             guard let leader = leaders.first else { return "—" }
             let vsPar = leader.vsPar
@@ -1461,19 +1517,21 @@ private struct GameStripPill: View {
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(.secondary)
                         ForEach(vm.strokePlayState.teamLeaderboard, id: \.teamID) { standing in
+                            let teamColor = strokePlayTeamColor(for: standing.teamID)
                             HStack(spacing: 6) {
                                 Text("\(standing.rank)")
                                     .font(.caption2.weight(.bold))
-                                    .foregroundStyle(standing.rank == 1 ? Color.teal : .secondary)
+                                    .foregroundStyle(standing.rank == 1 ? teamColor : .secondary)
                                     .frame(width: 14)
                                 Text(standing.teamName)
                                     .font(.caption)
                                     .fontWeight(standing.rank == 1 ? .semibold : .regular)
+                                    .foregroundStyle(teamColor)
                                 Spacer()
                                 let vsParStr = standing.vsPar == 0 ? "E" : (standing.vsPar > 0 ? "+\(standing.vsPar)" : "\(standing.vsPar)")
                                 Text(vsParStr)
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(standing.vsPar < 0 ? .teal : (standing.vsPar == 0 ? .primary : .secondary))
+                                    .foregroundStyle(standing.vsPar < 0 ? teamColor : (standing.vsPar == 0 ? .primary : .secondary))
                                 Text("(\(standing.netTotal))")
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
@@ -1511,6 +1569,14 @@ private struct GameStripPill: View {
                 }
             }
         }
+    }
+
+    private func strokePlayTeamColor(for teamID: String) -> Color {
+        let colors: [Color] = [.teal, .purple]
+        guard let spGame = vm.round.activeGames.first(where: { $0.type == .strokePlay }),
+              let spConfig = spGame.strokePlayConfig else { return .teal }
+        let idx = spConfig.bestBallPairings.firstIndex(where: { $0.id == teamID }) ?? 0
+        return colors[idx % colors.count]
     }
 
     private func nassauRow(_ label: String, _ status: NassauMatchStatus) -> some View {
