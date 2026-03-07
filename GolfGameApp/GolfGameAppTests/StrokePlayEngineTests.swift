@@ -208,3 +208,276 @@ import Testing
         #expect(output.auditLog.contains("Hole 2"))
     }
 }
+
+// MARK: - Best Ball 2v2 Tests
+
+@Suite struct StrokePlayEngineBestBall2v2Tests {
+    
+    @Test func bestBallSelectsLowerGrossScore() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"]),
+            BestBallPairing(teamName: "Team B", playerIDs: ["B1", "B2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "A2", gross: 5, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B1", gross: 6, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B2", gross: 4, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        #expect(output.bestGrossByTeam?[pairings[0].id] == 4)  // Team A best gross
+        #expect(output.bestGrossByTeam?[pairings[1].id] == 4)  // Team B best gross
+    }
+    
+    @Test func bestBallSelectsLowerNetScore() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 5, handicapStrokes: 1),  // net 4
+            StrokePlayPlayerScore(playerID: "A2", gross: 5, handicapStrokes: 0)   // net 5
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        #expect(output.bestNetByTeam?[pairings[0].id] == 4)  // Best net is 4 (A1)
+    }
+    
+    @Test func bestBallTeamTotalsAccumulate() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let hole1Scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "A2", gross: 5, handicapStrokes: 0)
+        ]
+        _ = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: hole1Scores))
+        
+        let hole2Scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 3, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "A2", gross: 4, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 2, par: 3, scores: hole2Scores))
+        
+        let teamStanding = output.bestBallTeamStandings?.first
+        #expect(teamStanding?.grossTotal == 7)  // 4 + 3
+        #expect(teamStanding?.netTotal == 7)    // 4 + 3
+    }
+    
+    @Test func bestBallTeamLeaderboardSortsByNetTotal() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"]),
+            BestBallPairing(teamName: "Team B", playerIDs: ["B1", "B2"]),
+            BestBallPairing(teamName: "Team C", playerIDs: ["C1", "C2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 5, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "A2", gross: 6, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B1", gross: 3, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B2", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "C1", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "C2", gross: 5, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        let standings = output.bestBallTeamStandings ?? []
+        #expect(standings[0].teamName == "Team B")  // 3 net
+        #expect(standings[1].teamName == "Team C")  // 4 net
+        #expect(standings[2].teamName == "Team A")  // 5 net
+    }
+    
+    @Test func bestBallTiedTeamsShareRank() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"]),
+            BestBallPairing(teamName: "Team B", playerIDs: ["B1", "B2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "A2", gross: 5, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B1", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B2", gross: 6, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        let standings = output.bestBallTeamStandings ?? []
+        #expect(standings[0].rank == 1)
+        #expect(standings[1].rank == 1)  // Tied, both rank 1
+    }
+    
+    @Test func bestBallVsParCalculatedCorrectly() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 3, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "A2", gross: 4, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        let teamStanding = output.bestBallTeamStandings?.first
+        #expect(teamStanding?.vsPar == -1)  // 3 net vs 4 par = -1
+    }
+    
+    @Test func bestBallHandicapStrokesAffectNetSelection() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 6, handicapStrokes: 2),  // net 4
+            StrokePlayPlayerScore(playerID: "A2", gross: 5, handicapStrokes: 0)   // net 5
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        #expect(output.bestNetByTeam?[pairings[0].id] == 4)  // A1's net 4 is better
+    }
+}
+
+// MARK: - Team Best Ball Tests
+
+@Suite struct StrokePlayEngineTeamBestBallTests {
+    
+    @Test func teamBestBallTracksAllFourPlayers() throws {
+        let pairings = [
+            BestBallPairing(teamName: "The Team", playerIDs: ["P1", "P2", "P3", "P4"])
+        ]
+        let config = StrokePlayEngineConfig(format: .teamBestBall, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "P1", gross: 5, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P2", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P3", gross: 6, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P4", gross: 3, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        #expect(output.bestGrossByTeam?[pairings[0].id] == 3)  // P4's score
+        #expect(output.bestNetByTeam?[pairings[0].id] == 3)
+    }
+    
+    @Test func teamBestBallVsParOnly() throws {
+        let pairings = [
+            BestBallPairing(teamName: "The Team", playerIDs: ["P1", "P2", "P3", "P4"])
+        ]
+        let config = StrokePlayEngineConfig(format: .teamBestBall, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "P1", gross: 3, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P2", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P3", gross: 5, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P4", gross: 6, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        let teamStanding = output.bestBallTeamStandings?.first
+        #expect(teamStanding?.vsPar == -1)  // 3 vs par 4 = -1
+        #expect(teamStanding?.rank == 1)    // Only one team
+    }
+    
+    @Test func teamBestBallAccumulatesAcrossHoles() throws {
+        let pairings = [
+            BestBallPairing(teamName: "The Team", playerIDs: ["P1", "P2", "P3", "P4"])
+        ]
+        let config = StrokePlayEngineConfig(format: .teamBestBall, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let hole1Scores = [
+            StrokePlayPlayerScore(playerID: "P1", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P2", gross: 3, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P3", gross: 5, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P4", gross: 6, handicapStrokes: 0)
+        ]
+        _ = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: hole1Scores))
+        
+        let hole2Scores = [
+            StrokePlayPlayerScore(playerID: "P1", gross: 5, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P2", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P3", gross: 3, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "P4", gross: 6, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 2, par: 4, scores: hole2Scores))
+        
+        let teamStanding = output.bestBallTeamStandings?.first
+        #expect(teamStanding?.netTotal == 6)     // 3 + 3
+        #expect(teamStanding?.vsPar == -2)       // 6 vs 8 par = -2
+    }
+}
+
+// MARK: - Individual Format Regression Tests
+
+@Suite struct StrokePlayEngineIndividualFormatTests {
+    
+    @Test func individualFormatHasNoBestBallData() throws {
+        let config = StrokePlayEngineConfig(format: .individual, pairings: [])
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B", gross: 5, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        #expect(output.bestBallTeamStandings == nil)
+        #expect(output.bestGrossByTeam == nil)
+        #expect(output.bestNetByTeam == nil)
+    }
+    
+    @Test func individualFormatStillTracksPlayers() throws {
+        let config = StrokePlayEngineConfig(format: .individual, pairings: [])
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "B", gross: 5, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        #expect(output.grossTotalByPlayer["A"] == 4)
+        #expect(output.grossTotalByPlayer["B"] == 5)
+        #expect(output.leaderboard.count == 2)
+    }
+}
+
+// MARK: - Best Ball Audit Log Tests
+
+@Suite struct StrokePlayEngineBestBallAuditTests {
+    
+    @Test func auditLogIncludesTeamScores() throws {
+        let pairings = [
+            BestBallPairing(teamName: "Team A", playerIDs: ["A1", "A2"])
+        ]
+        let config = StrokePlayEngineConfig(format: .bestBall2v2, pairings: pairings)
+        var engine = StrokePlayEngine(config: config)
+        
+        let scores = [
+            StrokePlayPlayerScore(playerID: "A1", gross: 4, handicapStrokes: 0),
+            StrokePlayPlayerScore(playerID: "A2", gross: 5, handicapStrokes: 0)
+        ]
+        let output = try engine.scoreHole(StrokePlayHoleInput(holeNumber: 1, par: 4, scores: scores))
+        
+        let hasTeamEntry = output.auditLog.contains { $0.contains("Team A") }
+        #expect(hasTeamEntry == true)
+    }
+}

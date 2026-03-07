@@ -25,6 +25,10 @@ final class SaturdaySetupViewModel: ObservableObject {
     @Published var scotchConfig = ScotchGameConfig.default
     @Published var stablefordConfig = StablefordGameConfig.default
     @Published var skinsConfig = SkinsGameConfig.default
+    @Published var strokePlayConfig = StrokePlayGameConfig()
+    
+    // Stroke Play Best Ball Team Assignments
+    @Published var bestBallPairings: [BestBallPairing] = []
 
     init() {
         playerDrafts = (0..<4).map { _ in PlayerDraft() }
@@ -111,7 +115,10 @@ final class SaturdaySetupViewModel: ObservableObject {
             case .sixPointScotch: return .scotch(scotchConfig)
             case .stableford: return .stableford(stablefordConfig)
             case .skins: return .skins(skinsConfig)
-            case .strokePlay: return .strokePlay()
+            case .strokePlay: 
+                var config = strokePlayConfig
+                config.bestBallPairings = bestBallPairings
+                return .strokePlay(config)
             }
         }
     }
@@ -937,6 +944,54 @@ private struct SetupScreen4_Settings: View {
                         .font(.caption)
                 }
             }
+            
+            // Stroke Play settings
+            if vm.selectedGames.contains(.strokePlay) {
+                Section {
+                    Picker("Format", selection: $vm.strokePlayConfig.format) {
+                        Text("Individual").tag(StrokePlayFormat.individual)
+                        Text("2v2 Best Ball").tag(StrokePlayFormat.bestBall2v2)
+                        Text("Team Best Ball").tag(StrokePlayFormat.teamBestBall)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: vm.strokePlayConfig.format) { _, _ in
+                        // Clear pairings when format changes
+                        vm.bestBallPairings = []
+                    }
+                    
+                    if vm.strokePlayConfig.format != .individual && vm.playerCount == 4 {
+                        NavigationLink {
+                            StrokePlayTeamSetupView(vm: vm)
+                                .navigationTitle("Best Ball Teams")
+                        } label: {
+                            HStack {
+                                Text("Configure Teams")
+                                Spacer()
+                                if vm.bestBallPairings.isEmpty {
+                                    Text("Not Set")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("\(vm.bestBallPairings.count) teams")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Stroke Play")
+                } footer: {
+                    if vm.strokePlayConfig.format == .individual {
+                        Text("Individual leaderboard tracking gross and net scores.")
+                            .font(.caption)
+                    } else if vm.strokePlayConfig.format == .bestBall2v2 {
+                        Text("Two teams of 2 players. Best ball score per hole.")
+                            .font(.caption)
+                    } else {
+                        Text("All 4 players on one team. Best ball vs par.")
+                            .font(.caption)
+                    }
+                }
+            }
 
             // Start Round
             Section {
@@ -974,5 +1029,145 @@ private struct StakeRow: View {
                 .multilineTextAlignment(.trailing)
                 .frame(width: 56)
         }
+    }
+}
+
+// MARK: - Stroke Play Team Setup
+
+private struct StrokePlayTeamSetupView: View {
+    @ObservedObject var vm: SaturdaySetupViewModel
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        Form {
+            if vm.strokePlayConfig.format == .bestBall2v2 {
+                bestBall2v2View
+            } else if vm.strokePlayConfig.format == .teamBestBall {
+                teamBestBallView
+            }
+            
+            Section {
+                Button("Done") {
+                    dismiss()
+                }
+                .frame(maxWidth: .infinity)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .onAppear {
+            initializePairingsIfNeeded()
+        }
+    }
+    
+    private var bestBall2v2View: some View {
+        Group {
+            Section {
+                ForEach(0..<2) { teamIndex in
+                    let teamLetter = teamIndex == 0 ? "A" : "B"
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Team \(teamLetter)")
+                            .font(.headline)
+                        
+                        if teamIndex < vm.bestBallPairings.count {
+                            ForEach(vm.bestBallPairings[teamIndex].playerIDs, id: \.self) { playerID in
+                                if let player = vm.activePlayers.first(where: { $0.id.uuidString == playerID }) {
+                                    HStack {
+                                        Text(player.name)
+                                        Spacer()
+                                        Text("HI: \(player.handicapIndex, specifier: "%.1f")")
+                                            .foregroundStyle(.secondary)
+                                            .font(.caption)
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            } header: {
+                Text("Team Assignments")
+            } footer: {
+                Text("Tap 'Shuffle Teams' to randomize, or manually assign players.")
+                    .font(.caption)
+            }
+            
+            Section {
+                Button("Shuffle Teams") {
+                    shuffleTeams()
+                }
+                Button("Balance by Handicap") {
+                    balanceByHandicap()
+                }
+            }
+        }
+    }
+    
+    private var teamBestBallView: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("The Team")
+                    .font(.headline)
+                
+                ForEach(vm.activePlayers) { player in
+                    HStack {
+                        Text(player.name)
+                        Spacer()
+                        Text("HI: \(player.handicapIndex, specifier: "%.1f")")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        } header: {
+            Text("All Players on One Team")
+        } footer: {
+            Text("Best ball score vs par for all 4 players.")
+                .font(.caption)
+        }
+    }
+    
+    private func initializePairingsIfNeeded() {
+        if vm.bestBallPairings.isEmpty {
+            if vm.strokePlayConfig.format == .bestBall2v2 {
+                balanceByHandicap()
+            } else if vm.strokePlayConfig.format == .teamBestBall {
+                let allPlayerIDs = vm.activePlayers.map { $0.id.uuidString }
+                vm.bestBallPairings = [
+                    BestBallPairing(teamName: "The Team", playerIDs: allPlayerIDs)
+                ]
+            }
+        }
+    }
+    
+    private func shuffleTeams() {
+        let shuffled = vm.activePlayers.shuffled()
+        vm.bestBallPairings = [
+            BestBallPairing(
+                teamName: "Team A",
+                playerIDs: [shuffled[0].id.uuidString, shuffled[1].id.uuidString]
+            ),
+            BestBallPairing(
+                teamName: "Team B",
+                playerIDs: [shuffled[2].id.uuidString, shuffled[3].id.uuidString]
+            )
+        ]
+    }
+    
+    private func balanceByHandicap() {
+        let sorted = vm.activePlayers.sorted { $0.handicapIndex < $1.handicapIndex }
+        guard sorted.count == 4 else { return }
+        
+        vm.bestBallPairings = [
+            BestBallPairing(
+                teamName: "Team A",
+                playerIDs: [sorted[0].id.uuidString, sorted[3].id.uuidString]
+            ),
+            BestBallPairing(
+                teamName: "Team B",
+                playerIDs: [sorted[1].id.uuidString, sorted[2].id.uuidString]
+            )
+        ]
     }
 }

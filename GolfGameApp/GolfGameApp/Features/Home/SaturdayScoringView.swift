@@ -1298,6 +1298,12 @@ private struct GameStripPill: View {
         case .stableford: return vm.stablefordState.pillText
         case .skins: return vm.skinsState.pillText
         case .strokePlay:
+            // For 2v2 and Team formats, use the state's pillText (shows team leader)
+            if let cfg = vm.strokePlayState.config, cfg.format != .individual {
+                return vm.strokePlayState.pillText
+            }
+            
+            // For individual format, show player name
             let leaders = vm.strokePlayState.leaderboard.filter { $0.rank == 1 }
             guard let leader = leaders.first else { return "—" }
             let vsPar = leader.vsPar
@@ -1428,22 +1434,79 @@ private struct GameStripPill: View {
                 }
             }
         case .strokePlay:
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(vm.strokePlayState.leaderboard, id: \.playerID) { standing in
-                    HStack(spacing: 6) {
-                        Text("\(standing.rank)")
+            VStack(alignment: .leading, spacing: 6) {
+                // Show team leaderboard for Best Ball formats
+                if !vm.strokePlayState.teamLeaderboard.isEmpty {
+                    if vm.strokePlayState.config?.format == .teamBestBall {
+                        // Team Best Ball - show only team vs par
+                        ForEach(vm.strokePlayState.teamLeaderboard, id: \.teamID) { standing in
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.3.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.teal)
+                                Text(standing.teamName)
+                                    .font(.caption.weight(.semibold))
+                                Spacer()
+                                let vsParStr = standing.vsPar == 0 ? "E" : (standing.vsPar > 0 ? "+\(standing.vsPar)" : "\(standing.vsPar)")
+                                Text(vsParStr)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(standing.vsPar < 0 ? .teal : (standing.vsPar == 0 ? .primary : .secondary))
+                                Text("(\(standing.netTotal))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        // 2v2 Best Ball - show team standings
+                        Text("Teams")
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(standing.rank == 1 ? Color.teal : .secondary)
-                            .frame(width: 14)
-                        Text(vm.playerName(for: standing.playerID)).font(.caption)
-                            .fontWeight(standing.rank == 1 ? .semibold : .regular)
-                        Spacer()
-                        let vsParStr = standing.vsPar == 0 ? "E" : (standing.vsPar > 0 ? "+\(standing.vsPar)" : "\(standing.vsPar)")
-                        Text(vsParStr)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(standing.vsPar < 0 ? .teal : (standing.vsPar == 0 ? .primary : .secondary))
-                        Text("(\(standing.netTotal))")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .foregroundStyle(.secondary)
+                        ForEach(vm.strokePlayState.teamLeaderboard, id: \.teamID) { standing in
+                            HStack(spacing: 6) {
+                                Text("\(standing.rank)")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(standing.rank == 1 ? Color.teal : .secondary)
+                                    .frame(width: 14)
+                                Text(standing.teamName)
+                                    .font(.caption)
+                                    .fontWeight(standing.rank == 1 ? .semibold : .regular)
+                                Spacer()
+                                let vsParStr = standing.vsPar == 0 ? "E" : (standing.vsPar > 0 ? "+\(standing.vsPar)" : "\(standing.vsPar)")
+                                Text(vsParStr)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(standing.vsPar < 0 ? .teal : (standing.vsPar == 0 ? .primary : .secondary))
+                                Text("(\(standing.netTotal))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        
+                        // Also show individual leaderboard for 2v2
+                        if vm.strokePlayState.config?.format == .bestBall2v2 {
+                            Divider().padding(.vertical, 2)
+                            Text("Individuals")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                
+                // Show individual leaderboard (always for individual, also for 2v2)
+                if vm.strokePlayState.config?.format != .teamBestBall {
+                    ForEach(vm.strokePlayState.leaderboard, id: \.playerID) { standing in
+                        HStack(spacing: 6) {
+                            Text("\(standing.rank)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(standing.rank == 1 ? Color.teal : .secondary)
+                                .frame(width: 14)
+                            Text(vm.playerName(for: standing.playerID)).font(.caption)
+                                .fontWeight(standing.rank == 1 ? .semibold : .regular)
+                            Spacer()
+                            let vsParStr = standing.vsPar == 0 ? "E" : (standing.vsPar > 0 ? "+\(standing.vsPar)" : "\(standing.vsPar)")
+                            Text(vsParStr)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(standing.vsPar < 0 ? .teal : (standing.vsPar == 0 ? .primary : .secondary))
+                            Text("(\(standing.netTotal))")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

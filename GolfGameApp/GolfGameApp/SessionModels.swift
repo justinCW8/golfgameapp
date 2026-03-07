@@ -6,6 +6,24 @@ enum TeamSide: String, Codable {
     case teamB
 }
 
+enum StrokePlayFormat: String, Codable {
+    case individual      // Individual leaderboard only
+    case bestBall2v2     // Two teams of 2, best ball competition
+    case teamBestBall    // All 4 players as one team vs par
+}
+
+struct BestBallPairing: Identifiable, Codable, Hashable {
+    var id: String
+    var teamName: String
+    var playerIDs: [String]
+    
+    init(id: String = UUID().uuidString, teamName: String, playerIDs: [String]) {
+        self.id = id
+        self.teamName = teamName
+        self.playerIDs = playerIDs
+    }
+}
+
 enum GameScope: String, Codable {
     case round
     case event
@@ -836,7 +854,14 @@ struct SkinsGameConfig: Codable, Equatable {
 }
 
 struct StrokePlayGameConfig: Codable, Equatable {
-    // Tracks gross and net automatically. Future: add handicapAllowance percentage.
+    var format: StrokePlayFormat
+    var bestBallPairings: [BestBallPairing]
+    
+    init(format: StrokePlayFormat = .individual, bestBallPairings: [BestBallPairing] = []) {
+        self.format = format
+        self.bestBallPairings = bestBallPairings
+    }
+    
     static let `default` = StrokePlayGameConfig()
 }
 
