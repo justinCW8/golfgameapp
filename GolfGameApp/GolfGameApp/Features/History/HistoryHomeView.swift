@@ -216,7 +216,10 @@ private struct HistorySettlementView: View {
         case .stableford:
             StablefordSummaryView(round: round)
         case .skins:
-            EmptyView()   // SkinsSummaryView added in Swarm 8.4
+            if let skinsGame = round.activeGames.first(where: { $0.type == .skins }),
+               let config = skinsGame.skinsConfig {
+                SkinsSummaryView(round: round, config: config)
+            }
         case .strokePlay:
             StrokePlaySummaryView(round: round)
         }

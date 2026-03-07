@@ -77,7 +77,10 @@ struct RoundSummaryView: View {
         case .stableford:
             StablefordSummaryView(round: round)
         case .skins:
-            EmptyView()   // SkinsSummaryView added in Swarm 8.4
+            if let skinsGame = round.activeGames.first(where: { $0.type == .skins }),
+               let config = skinsGame.skinsConfig {
+                SkinsSummaryView(round: round, config: config)
+            }
         case .strokePlay:
             StrokePlaySummaryView(round: round)
         }
@@ -344,6 +347,164 @@ struct ScotchSummaryView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+// MARK: - Skins Settlement
+
+struct SkinsSummaryView: View {
+    let round: SaturdayRound
+    let config: SkinsGameConfig
+
+    private struct EngineResult {
+        var grossSkinsTotal: [String: Int]
+        var netSkinsTotal: [String: Int]
+        var grossCarryover: Int
+        var netCarryover: Int
+    }
+
+    private var engineResult: EngineResult {
+        var engine = SkinsEngine()
+        var lastOutput: SkinsHoleOutput?
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        for entry in entries {
+            guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+            let scores = round.players.map { player -> SkinsPlayerScore in
+                let gross = entry.grossByPlayerID[player.id] ?? stub.par
+                let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                return SkinsPlayerScore(playerID: player.id, gross: gross, handicapStrokes: strokes)
+            }
+            let input = SkinsHoleInput(
+                holeNumber: entry.holeNumber, par: stub.par,
+                scores: scores, mode: config.mode, carryoverEnabled: config.carryoverEnabled
+            )
+            if let output = try? engine.scoreHole(input) { lastOutput = output }
+        }
+        return EngineResult(
+            grossSkinsTotal: lastOutput?.grossSkinsTotal ?? [:],
+            netSkinsTotal: lastOutput?.netSkinsTotal ?? [:],
+            grossCarryover: lastOutput?.grossCarryover ?? 0,
+            netCarryover: lastOutput?.netCarryover ?? 0
+        )
+    }
+
+    private struct PlayerRow {
+        var player: PlayerSnapshot
+        var grossSkins: Int
+        var netSkins: Int
+        var totalSkins: Int
+        var winnings: Double
+    }
+
+    private var leaderboard: [PlayerRow] {
+        let result = engineResult
+        return round.players.map { player in
+            let gross = result.grossSkinsTotal[player.id] ?? 0
+            let net = result.netSkinsTotal[player.id] ?? 0
+            let total: Int
+            switch config.mode {
+            case .gross: total = gross
+            case .net:   total = net
+            case .both:  total = gross + net
+            }
+            return PlayerRow(player: player, grossSkins: gross, netSkins: net,
+                             totalSkins: total, winnings: Double(total) * config.skinValue)
+        }
+        .sorted { $0.totalSkins > $1.totalSkins }
+    }
+
+    var body: some View {
+        let board = leaderboard
+        let result = engineResult
+        let unresolvedGross = config.mode != .net ? result.grossCarryover : 0
+        let unresolvedNet   = config.mode != .gross ? result.netCarryover : 0
+
+        VStack(spacing: 16) {
+            // Winner banner
+            if let top = board.first, top.totalSkins > 0 {
+                VStack(spacing: 6) {
+                    Text(top.player.name)
+                        .font(.title2.weight(.bold)).foregroundStyle(.green)
+                    Text("\(top.totalSkins) skin\(top.totalSkins == 1 ? "" : "s") · $\(String(format: "%.0f", top.winnings))")
+                        .font(.headline)
+                    Text("$\(String(format: "%.0f", config.skinValue)) per skin")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            } else {
+                VStack(spacing: 6) {
+                    Text("No Skins Won")
+                        .font(.title2.weight(.bold)).foregroundStyle(.secondary)
+                    Text("All holes tied")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            // Unresolved carryover warning
+            if unresolvedGross > 0 || unresolvedNet > 0 {
+                let carries = [
+                    unresolvedGross > 0 ? "\(unresolvedGross) gross" : nil,
+                    unresolvedNet   > 0 ? "\(unresolvedNet) net"     : nil
+                ].compactMap { $0 }.joined(separator: " · ")
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                    Text("\(carries) skin(s) unresolved — round ended mid-carryover")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            // Leaderboard table
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("").frame(width: 24)
+                    Text("Player").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if config.mode == .both {
+                        Text("Gross").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                        Text("Net").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                    }
+                    Text("Skins").font(.caption).foregroundStyle(.secondary).frame(width: 40)
+                    Text("$").font(.caption).foregroundStyle(.secondary).frame(width: 44)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                Divider()
+                ForEach(Array(board.enumerated()), id: \.element.player.id) { index, row in
+                    HStack(spacing: 8) {
+                        Text("\(index + 1)")
+                            .font(.headline)
+                            .foregroundStyle(row.totalSkins > 0 ? .green : .secondary)
+                            .frame(width: 24)
+                        Text(row.player.name)
+                            .font(.subheadline.weight(row.totalSkins > 0 ? .semibold : .regular))
+                        Spacer()
+                        if config.mode == .both {
+                            Text("\(row.grossSkins)").font(.subheadline).foregroundStyle(.secondary).frame(width: 44)
+                            Text("\(row.netSkins)").font(.subheadline).foregroundStyle(.secondary).frame(width: 44)
+                        }
+                        Text("\(row.totalSkins)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(row.totalSkins > 0 ? .green : .secondary)
+                            .frame(width: 40)
+                        Text(row.winnings > 0 ? "$\(String(format: "%.0f", row.winnings))" : "—")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(row.winnings > 0 ? .primary : .secondary)
+                            .frame(width: 44)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    if index < board.count - 1 { Divider() }
+                }
+            }
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        }
     }
 }
 
