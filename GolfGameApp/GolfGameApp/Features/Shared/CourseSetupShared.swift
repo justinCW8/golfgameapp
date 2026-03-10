@@ -28,6 +28,7 @@ final class ScanViewModel: ObservableObject {
     @Published var searchQuery: String = ""
     @Published var apiResults: [CourseAPIResult] = []
     @Published var isSearching: Bool = false
+    @Published var searchErrorMessage: String? = nil
     private var searchTask: Task<Void, Never>? = nil
     private var apiHolesByTee: [String: [ScannedHole]] = [:]
 
@@ -91,13 +92,23 @@ final class ScanViewModel: ObservableObject {
         guard query.count >= 3 else {
             apiResults = []
             isSearching = false
+            searchErrorMessage = nil
             return
         }
         isSearching = true
+        searchErrorMessage = nil
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 s debounce
             guard !Task.isCancelled else { return }
-            apiResults = (try? await courseSearch.search(query: query)) ?? []
+            do {
+                apiResults = try await courseSearch.search(query: query)
+                searchErrorMessage = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                apiResults = []
+                searchErrorMessage = error.localizedDescription
+            }
             isSearching = false
         }
     }
@@ -118,6 +129,7 @@ final class ScanViewModel: ObservableObject {
         )
         applyRatingForCurrentTee(from: scannedData)
         apiResults = []
+        searchErrorMessage = nil
         searchQuery = ""
         step = .reviewing
     }

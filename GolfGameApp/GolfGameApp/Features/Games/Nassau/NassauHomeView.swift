@@ -452,8 +452,15 @@ private struct NassauCourseScreen: View {
                     }
                 }
             } footer: {
-                Text("Type at least 3 characters to search ~30,000 courses.")
-                    .font(.caption)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Type at least 3 characters to search ~30,000 courses.")
+                        .font(.caption)
+                    if let searchError = scanVM.searchErrorMessage {
+                        Text(searchError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
             }
 
             if !scanVM.apiResults.isEmpty {
@@ -727,6 +734,7 @@ private final class NassauScanViewModel: ObservableObject {
     @Published var searchQuery: String = ""
     @Published var apiResults: [CourseAPIResult] = []
     @Published var isSearching: Bool = false
+    @Published var searchErrorMessage: String? = nil
     private var searchTask: Task<Void, Never>? = nil
     private var apiHolesByTee: [String: [ScannedHole]] = [:]
 
@@ -790,13 +798,23 @@ private final class NassauScanViewModel: ObservableObject {
         guard query.count >= 3 else {
             apiResults = []
             isSearching = false
+            searchErrorMessage = nil
             return
         }
         isSearching = true
+        searchErrorMessage = nil
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
-            apiResults = (try? await courseSearch.search(query: query)) ?? []
+            do {
+                apiResults = try await courseSearch.search(query: query)
+                searchErrorMessage = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                apiResults = []
+                searchErrorMessage = error.localizedDescription
+            }
             isSearching = false
         }
     }
@@ -817,6 +835,7 @@ private final class NassauScanViewModel: ObservableObject {
         )
         applyRatingForCurrentTee(from: scannedData)
         apiResults = []
+        searchErrorMessage = nil
         searchQuery = ""
         step = .reviewing
     }
