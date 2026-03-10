@@ -76,6 +76,35 @@ xcodebuild test \
   -only-testing 'GolfGameAppTests'
 ```
 
+### Secrets key files
+- `GolfGameApp/GolfGameApp/Core/Services/Secrets.swift`
+- `GolfGameApp/GolfGameApp/Core/Services/Secrets.swift.template`
+- Current branch keeps `Secrets.swift` tracked in git.
+- If key changes, keep both files synchronized.
+
+### Canonical no-sign build (local CLI)
+```bash
+xcodebuild build \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -configuration Debug \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/golfgameapp-dd \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+### Canonical no-sign unit tests (local CLI)
+```bash
+xcodebuild test \
+  -project "GolfGameApp/GolfGameApp.xcodeproj" \
+  -scheme "GolfGameApp" \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath /tmp/golfgameapp-testdd \
+  -only-testing 'GolfGameAppTests' \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO
+```
+
 ### Simulator discovery
 ```bash
 xcrun simctl list devices available
@@ -160,4 +189,24 @@ xcrun simctl list devices available
 ## Useful References
 - `CLAUDE.md` for architecture details and historical decisions.
 - `REPO_MAP.md` for quick code navigation.
+- `docs/build_test_launch_readiness.md` for local bootstrap/no-sign validation and UI route map.
 - `docs/prd/mvp-phase-1.md` and `docs/prd/games/*.md` for game rules.
+
+## Current Feature Notes (March 2026)
+- Course search:
+  - Explicit errors surfaced for missing/invalid API key and non-200 responses.
+  - Search footer now displays error text instead of silent empty result.
+- Round messaging:
+  - Round summary and history detail support texting scorecard + settlement.
+  - Send flow includes recipient preview confirmation before opening message composer.
+- Buddy data:
+  - Buddies include optional `phoneNumber`, normalized before persistence.
+  - Settings has `Manage Buddies` view for add/edit/delete.
+- Round persistence:
+  - Only completed rounds move into active history on clear.
+  - History supports archive workflow (archive one, archive all, grouped archive view, delete one, delete all archived).
+- Scorecard UX:
+  - Added SI column and per-player stroke markers.
+  - Added bottom player-name header for column reference.
+- Debug-only helper:
+  - `SaturdayScoringView` has `Dev: Auto-Fill Remaining Holes` to complete rounds quickly for testing.

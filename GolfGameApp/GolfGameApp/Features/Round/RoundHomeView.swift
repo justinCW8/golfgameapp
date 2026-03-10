@@ -434,8 +434,15 @@ private struct CourseSetupScreen: View {
                     }
                 }
             } footer: {
-                Text("Type at least 3 characters to search ~30,000 courses.")
-                    .font(.caption)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Type at least 3 characters to search ~30,000 courses.")
+                        .font(.caption)
+                    if let searchError = scanVM.searchErrorMessage {
+                        Text(searchError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
             }
 
             // Search results

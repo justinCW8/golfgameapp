@@ -77,6 +77,7 @@ struct Buddy: Codable, Identifiable, Hashable {
     var id: UUID = UUID()
     var name: String
     var handicapIndex: Double
+    var phoneNumber: String?
     var lastConfirmedAt: Date = Date()
 
     var needsHIConfirmation: Bool {
@@ -84,13 +85,14 @@ struct Buddy: Codable, Identifiable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, handicapIndex, lastConfirmedAt
+        case id, name, handicapIndex, phoneNumber, lastConfirmedAt
     }
 
-    init(id: UUID = UUID(), name: String, handicapIndex: Double, lastConfirmedAt: Date = Date()) {
+    init(id: UUID = UUID(), name: String, handicapIndex: Double, phoneNumber: String? = nil, lastConfirmedAt: Date = Date()) {
         self.id = id
         self.name = name
         self.handicapIndex = handicapIndex
+        self.phoneNumber = phoneNumber
         self.lastConfirmedAt = lastConfirmedAt
     }
 
@@ -99,6 +101,7 @@ struct Buddy: Codable, Identifiable, Hashable {
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
+        phoneNumber = try c.decodeIfPresent(String.self, forKey: .phoneNumber)
         lastConfirmedAt = try c.decodeIfPresent(Date.self, forKey: .lastConfirmedAt) ?? Date(timeIntervalSinceNow: -31 * 24 * 3600)
     }
 }
@@ -110,31 +113,98 @@ final class BuddyStore: ObservableObject {
 
     init() {
         load()
-        if buddies.isEmpty { seedDefaults() }
+        if buddies.isEmpty {
+            seedDefaults()
+        } else {
+            backfillTestingBuddiesIfNeeded()
+        }
     }
 
     private func seedDefaults() {
-        let defaults: [(String, Double)] = [
-            ("DB", 10.0), ("JW", 9.5), ("BC", 14.2), ("JP", 11.1)
+        let defaults: [(String, Double, String?)] = [
+            ("Justin Waite", 9.5, "+13122872941"),
+            ("Brendan Clarke", 16.4, "+13125550000"),
+            ("Jeff Dulla", 11.3, "+13125550000"),
+            ("Jamie Petrzelka", 11.4, "+13125550000")
         ]
-        for (name, hi) in defaults {
-            buddies.append(Buddy(name: name, handicapIndex: hi))
+        for (name, hi, phone) in defaults {
+            buddies.append(Buddy(name: name, handicapIndex: hi, phoneNumber: Self.normalizedPhoneNumber(phone)))
         }
         save()
     }
 
-    func add(name: String, handicapIndex: Double) {
+    private func backfillTestingBuddiesIfNeeded() {
+        let defaults: [(String, Double, String?)] = [
+            ("Justin Waite", 9.5, "+13122872941"),
+            ("Brendan Clarke", 16.4, "+13125550000"),
+            ("Jeff Dulla", 11.3, "+13125550000"),
+            ("Jamie Petrzelka", 11.4, "+13125550000")
+        ]
+
+        var changed = false
+        for (name, hi, phone) in defaults {
+            if let idx = buddies.firstIndex(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+                let normalizedPhone = Self.normalizedPhoneNumber(phone)
+                if buddies[idx].phoneNumber != normalizedPhone {
+                    buddies[idx].phoneNumber = normalizedPhone
+                    changed = true
+                }
+            } else {
+                buddies.append(Buddy(name: name, handicapIndex: hi, phoneNumber: Self.normalizedPhoneNumber(phone)))
+                changed = true
+            }
+        }
+
+        if changed { save() }
+    }
+
+    static func normalizedPhoneNumber(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let hasLeadingPlus = trimmed.hasPrefix("+")
+        let digits = trimmed.filter(\.isNumber)
+        guard !digits.isEmpty else { return nil }
+        return hasLeadingPlus ? "+\(digits)" : digits
+    }
+
+    func add(name: String, handicapIndex: Double, phoneNumber: String? = nil) {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         guard !buddies.contains(where: { $0.name.lowercased() == name.lowercased() }) else { return }
         let clampedHI = min(max(handicapIndex, 0), 54)
-        buddies.append(Buddy(name: name, handicapIndex: clampedHI))
+        let normalizedPhone = Self.normalizedPhoneNumber(phoneNumber)
+        buddies.append(Buddy(name: name, handicapIndex: clampedHI, phoneNumber: normalizedPhone))
         save()
     }
 
     func update(_ buddy: Buddy) {
         if let idx = buddies.firstIndex(where: { $0.id == buddy.id }) {
-            buddies[idx] = buddy
+            var updated = buddy
+            updated.phoneNumber = Self.normalizedPhoneNumber(buddy.phoneNumber)
+            buddies[idx] = updated
             save()
+        }
+    }
+
+    func buddy(named name: String) -> Buddy? {
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedName.isEmpty else { return nil }
+        return buddies.first { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedName }
+    }
+
+    func phoneNumbers(forPlayers playerNames: [String]) -> [String] {
+        playerNames.compactMap { name in
+            guard let buddy = buddy(named: name) else { return nil }
+            return Self.normalizedPhoneNumber(buddy.phoneNumber)
+        }
+    }
+
+    func textingRecipients(forPlayers playerNames: [String]) -> [(name: String, phone: String)] {
+        playerNames.compactMap { name in
+            guard let buddy = buddy(named: name),
+                  let phone = Self.normalizedPhoneNumber(buddy.phoneNumber) else { return nil }
+            return (name: buddy.name, phone: phone)
         }
     }
 
@@ -507,6 +577,7 @@ private struct AppSessionSnapshot: Codable {
     var activeNassauSession: NassauSession?
     var activeSaturdayRound: SaturdayRound?
     var completedRounds: [SaturdayRound]
+    var archivedRounds: [SaturdayRound]
 
     private enum CodingKeys: String, CodingKey {
         case gameSelections
@@ -515,6 +586,7 @@ private struct AppSessionSnapshot: Codable {
         case activeNassauSession
         case activeSaturdayRound
         case completedRounds
+        case archivedRounds
     }
 
     init(
@@ -523,7 +595,8 @@ private struct AppSessionSnapshot: Codable {
         activeEventSession: EventSession?,
         activeNassauSession: NassauSession?,
         activeSaturdayRound: SaturdayRound?,
-        completedRounds: [SaturdayRound]
+        completedRounds: [SaturdayRound],
+        archivedRounds: [SaturdayRound]
     ) {
         self.gameSelections = gameSelections
         self.activeRoundSession = activeRoundSession
@@ -531,6 +604,7 @@ private struct AppSessionSnapshot: Codable {
         self.activeNassauSession = activeNassauSession
         self.activeSaturdayRound = activeSaturdayRound
         self.completedRounds = completedRounds
+        self.archivedRounds = archivedRounds
     }
 
     init(from decoder: Decoder) throws {
@@ -541,6 +615,7 @@ private struct AppSessionSnapshot: Codable {
         activeNassauSession = try container.decodeIfPresent(NassauSession.self, forKey: .activeNassauSession)
         activeSaturdayRound = try container.decodeIfPresent(SaturdayRound.self, forKey: .activeSaturdayRound)
         completedRounds = try container.decodeIfPresent([SaturdayRound].self, forKey: .completedRounds) ?? []
+        archivedRounds = try container.decodeIfPresent([SaturdayRound].self, forKey: .archivedRounds) ?? []
     }
 }
 
@@ -554,6 +629,7 @@ final class AppSessionStore: ObservableObject {
     @Published var activeNassauSession: NassauSession?
     @Published var activeSaturdayRound: SaturdayRound?
     @Published var completedRounds: [SaturdayRound] = []
+    @Published var archivedRounds: [SaturdayRound] = []
 
     var configuredRound: RoundSetupSession? {
         activeRoundSession?.setup
@@ -734,7 +810,10 @@ final class AppSessionStore: ObservableObject {
     }
 
     func clearSaturdayRound() {
-        if let round = activeSaturdayRound, !round.holeEntries.isEmpty {
+        if let round = activeSaturdayRound,
+           round.isComplete,
+           !round.holeEntries.isEmpty,
+           !completedRounds.contains(where: { $0.id == round.id }) {
             completedRounds.insert(round, at: 0)
         }
         activeSaturdayRound = nil
@@ -745,6 +824,47 @@ final class AppSessionStore: ObservableObject {
         persist()
     }
 
+    func archiveCompletedRounds(at offsets: IndexSet) {
+        let rounds = offsets.map { completedRounds[$0] }
+        for idx in offsets.sorted(by: >) {
+            completedRounds.remove(at: idx)
+        }
+        archivedRounds.insert(contentsOf: rounds, at: 0)
+        persist()
+    }
+
+    func archiveCompletedRound(id: UUID) {
+        guard let idx = completedRounds.firstIndex(where: { $0.id == id }) else { return }
+        let round = completedRounds.remove(at: idx)
+        archivedRounds.insert(round, at: 0)
+        persist()
+    }
+
+    func archiveAllCompletedRounds() {
+        guard !completedRounds.isEmpty else { return }
+        archivedRounds.insert(contentsOf: completedRounds, at: 0)
+        completedRounds.removeAll()
+        persist()
+    }
+
+    func deleteArchivedRounds(at offsets: IndexSet) {
+        for idx in offsets.sorted(by: >) {
+            archivedRounds.remove(at: idx)
+        }
+        persist()
+    }
+
+    func deleteArchivedRound(id: UUID) {
+        guard let idx = archivedRounds.firstIndex(where: { $0.id == id }) else { return }
+        archivedRounds.remove(at: idx)
+        persist()
+    }
+
+    func deleteAllArchivedRounds() {
+        archivedRounds.removeAll()
+        persist()
+    }
+
     private func persist() {
         let snapshot = AppSessionSnapshot(
             gameSelections: gameSelections,
@@ -752,7 +872,8 @@ final class AppSessionStore: ObservableObject {
             activeEventSession: activeEventSession,
             activeNassauSession: activeNassauSession,
             activeSaturdayRound: activeSaturdayRound,
-            completedRounds: completedRounds
+            completedRounds: completedRounds,
+            archivedRounds: archivedRounds
         )
 
         do {
@@ -785,6 +906,7 @@ final class AppSessionStore: ObservableObject {
             activeNassauSession = snapshot.activeNassauSession
             activeSaturdayRound = snapshot.activeSaturdayRound
             completedRounds = snapshot.completedRounds
+            archivedRounds = snapshot.archivedRounds
         } catch {
             #if DEBUG
             print("AppSessionStore load failed: \(error)")

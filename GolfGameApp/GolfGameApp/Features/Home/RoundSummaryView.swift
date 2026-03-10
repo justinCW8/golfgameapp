@@ -1,4 +1,5 @@
 import SwiftUI
+import MessageUI
 
 // MARK: - Round Summary (tabbed settlement)
 
@@ -7,10 +8,34 @@ struct RoundSummaryView: View {
     let store: AppSessionStore
     let onDone: () -> Void
 
+    @EnvironmentObject private var buddyStore: BuddyStore
     @State private var selectedTab = 0
+    @State private var showingMessageComposer = false
+    @State private var showCannotTextAlert = false
+    @State private var showSendConfirmAlert = false
 
     private var activeTabs: [GameType] {
         round.activeGames.map(\.type)
+    }
+
+    private var messageData: RoundTextMessageData {
+        RoundTextMessageData(
+            recipients: buddyStore.phoneNumbers(forPlayers: round.players.map(\.name)),
+            body: RoundTextMessageComposer.messageBody(for: round)
+        )
+    }
+
+    private var recipientEntries: [(name: String, phone: String)] {
+        buddyStore.textingRecipients(forPlayers: round.players.map(\.name))
+    }
+
+    private var recipientPreviewText: String {
+        if recipientEntries.isEmpty {
+            return "No saved phone numbers matched this group. You can still review and send from the composer."
+        }
+        return recipientEntries
+            .map { "\($0.name): \($0.phone)" }
+            .joined(separator: "\n")
     }
 
     var body: some View {
@@ -39,24 +64,59 @@ struct RoundSummaryView: View {
 
             Divider()
 
-            Button {
-                store.clearSaturdayRound()
-                onDone()
-            } label: {
-                Label("Done — Clear Round", systemImage: "checkmark.circle")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+            VStack(spacing: 10) {
+                Button {
+                    if MFMessageComposeViewController.canSendText() {
+                        showSendConfirmAlert = true
+                    } else {
+                        showCannotTextAlert = true
+                    }
+                } label: {
+                    Label("Text Scorecard + Settlement", systemImage: "message.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    store.clearSaturdayRound()
+                    onDone()
+                } label: {
+                    Label("Done — Clear Round", systemImage: "checkmark.circle")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .controlSize(.large)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.blue)
-            .controlSize(.large)
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
             .background(Color(.secondarySystemBackground))
         }
         .navigationTitle("Round Summary")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingMessageComposer) {
+            RoundMessageComposeView(
+                recipients: messageData.recipients,
+                body: messageData.body
+            )
+        }
+        .alert("Send Scorecard + Settlement?", isPresented: $showSendConfirmAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Open Message") {
+                showingMessageComposer = true
+            }
+        } message: {
+            Text(recipientPreviewText)
+        }
+        .alert("Text Messaging Unavailable", isPresented: $showCannotTextAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This simulator cannot send SMS. Use a real iPhone to text your group.")
+        }
     }
 
     // MARK: - Per-game content
@@ -733,6 +793,313 @@ struct StablefordSummaryView: View {
                 }
             }
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
+struct RoundTextMessageData {
+    var recipients: [String]
+    var body: String
+}
+
+struct RoundMessageComposeView: UIViewControllerRepresentable {
+    let recipients: [String]
+    let body: String
+
+    final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
+        var parent: RoundMessageComposeView
+
+        init(parent: RoundMessageComposeView) {
+            self.parent = parent
+        }
+
+        func messageComposeViewController(
+            _ controller: MFMessageComposeViewController,
+            didFinishWith result: MessageComposeResult
+        ) {
+            controller.dismiss(animated: true)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> MFMessageComposeViewController {
+        let vc = MFMessageComposeViewController()
+        vc.messageComposeDelegate = context.coordinator
+        vc.recipients = recipients.isEmpty ? nil : recipients
+        vc.body = body
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: MFMessageComposeViewController, context: Context) {}
+}
+
+enum RoundTextMessageComposer {
+    static func messageBody(for round: SaturdayRound) -> String {
+        var lines: [String] = []
+        lines.append("Golf Round Summary")
+        lines.append("\(round.courseName)")
+        lines.append(round.createdAt.formatted(date: .abbreviated, time: .shortened))
+        lines.append("Players: \(round.players.map(\.name).joined(separator: ", "))")
+        lines.append("")
+        lines.append("Scorecard Totals")
+        lines.append(contentsOf: scorecardLines(for: round))
+        lines.append("")
+        lines.append("Final Settlement")
+        lines.append(contentsOf: settlementLines(for: round))
+        return lines.joined(separator: "\n")
+    }
+
+    private static func scorecardLines(for round: SaturdayRound) -> [String] {
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        let holesPlayed = entries.count
+        return round.players.map { player in
+            var grossTotal = 0
+            var netTotal = 0
+            for entry in entries {
+                guard let gross = entry.grossByPlayerID[player.id] else { continue }
+                grossTotal += gross
+                let strokeIndex = round.holes.first(where: { $0.number == entry.holeNumber })?.strokeIndex ?? entry.holeNumber
+                let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: strokeIndex)
+                netTotal += gross - strokes
+            }
+            return "- \(player.name): Gross \(grossTotal), Net \(netTotal) (\(holesPlayed) holes)"
+        }
+    }
+
+    private static func settlementLines(for round: SaturdayRound) -> [String] {
+        var lines: [String] = []
+        for game in round.activeGames {
+            switch game.type {
+            case .nassau:
+                if let config = game.nassauConfig {
+                    lines.append(nassauSummary(round: round, config: config))
+                }
+            case .sixPointScotch:
+                if let config = game.scotchConfig {
+                    lines.append(scotchSummary(round: round, config: config))
+                }
+            case .stableford:
+                lines.append(stablefordSummary(round: round))
+            case .skins:
+                if let config = game.skinsConfig {
+                    lines.append(skinsSummary(round: round, config: config))
+                }
+            case .strokePlay:
+                if let config = game.strokePlayConfig {
+                    lines.append(strokePlaySummary(round: round, config: config))
+                }
+            }
+        }
+        return lines.isEmpty ? ["- No active games configured."] : lines
+    }
+
+    private static func nassauSummary(round: SaturdayRound, config: NassauGameConfig) -> String {
+        var engine = NassauEngine()
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        for entry in entries {
+            guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+            let sideANet: [Int]
+            let sideBNet: [Int]
+            if config.format == .fourball {
+                sideANet = round.teamAPlayers.map { p in
+                    let g = entry.grossByPlayerID[p.id] ?? (stub.par + 2)
+                    let s = strokeCountForHandicapIndex(p.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                    return g - s
+                }
+                sideBNet = round.teamBPlayers.map { p in
+                    let g = entry.grossByPlayerID[p.id] ?? (stub.par + 2)
+                    let s = strokeCountForHandicapIndex(p.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                    return g - s
+                }
+            } else {
+                sideANet = round.players.prefix(1).map { p in
+                    let g = entry.grossByPlayerID[p.id] ?? (stub.par + 2)
+                    let s = strokeCountForHandicapIndex(p.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                    return g - s
+                }
+                sideBNet = round.players.dropFirst().prefix(1).map { p in
+                    let g = entry.grossByPlayerID[p.id] ?? (stub.par + 2)
+                    let s = strokeCountForHandicapIndex(p.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                    return g - s
+                }
+            }
+            _ = try? engine.scoreHole(
+                NassauHoleInput(
+                    holeNumber: entry.holeNumber,
+                    par: stub.par,
+                    sideANetScores: sideANet,
+                    sideBNetScores: sideBNet,
+                    manualPressBy: entry.nassauManualPressBy
+                ),
+                config: config.pressConfig
+            )
+        }
+
+        let settlement = engine.settlement()
+        let net = settlement.totalNetForA
+        let sideAName = shortTeamName(round.teamAPlayers, fallback: round.players.first?.name ?? "Side A")
+        let sideBName = shortTeamName(round.teamBPlayers, fallback: round.players.dropFirst().first?.name ?? "Side B")
+        if net == 0 {
+            return "- Nassau: All square."
+        }
+        let winner = net > 0 ? sideAName : sideBName
+        let loser = net > 0 ? sideBName : sideAName
+        let amount = abs(Double(net)) * config.frontStake
+        return "- Nassau: \(winner) won \(abs(net)) bets. \(loser) owes $\(Int(amount.rounded()))."
+    }
+
+    private static func scotchSummary(round: SaturdayRound, config: ScotchGameConfig) -> String {
+        var engine = SixPointScotchEngine()
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        var lastOutput: SixPointScotchHoleOutput?
+        for entry in entries {
+            guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+            let teamANet = round.teamAPlayers.map { p in
+                let g = entry.grossByPlayerID[p.id] ?? (stub.par + 2)
+                return g - strokeCountForHandicapIndex(p.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+            }
+            let teamBNet = round.teamBPlayers.map { p in
+                let g = entry.grossByPlayerID[p.id] ?? (stub.par + 2)
+                return g - strokeCountForHandicapIndex(p.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+            }
+            let teamAGross = round.teamAPlayers.compactMap { entry.grossByPlayerID[$0.id] }
+            let teamBGross = round.teamBPlayers.compactMap { entry.grossByPlayerID[$0.id] }
+            let teamAProx = round.teamAPlayers.compactMap { entry.scotchFlags.proxFeetByPlayerID[$0.id] }.min()
+            let teamBProx = round.teamBPlayers.compactMap { entry.scotchFlags.proxFeetByPlayerID[$0.id] }.min()
+            lastOutput = try? engine.scoreHole(
+                SixPointScotchHoleInput(
+                    holeNumber: entry.holeNumber,
+                    par: stub.par,
+                    teamANetScores: teamANet,
+                    teamBNetScores: teamBNet,
+                    teamAGrossScores: teamAGross,
+                    teamBGrossScores: teamBGross,
+                    teamAProxFeet: teamAProx,
+                    teamBProxFeet: teamBProx,
+                    requestPressBy: entry.scotchFlags.requestPressBy,
+                    requestRollBy: entry.scotchFlags.requestRollBy,
+                    requestRerollBy: entry.scotchFlags.requestRerollBy
+                )
+            )
+        }
+        let totalA = lastOutput?.totalTeamA ?? 0
+        let totalB = lastOutput?.totalTeamB ?? 0
+        let diff = totalA - totalB
+        if diff == 0 {
+            return "- Six Point Scotch: Tied."
+        }
+        let teamAName = shortTeamName(round.teamAPlayers, fallback: "Team A")
+        let teamBName = shortTeamName(round.teamBPlayers, fallback: "Team B")
+        let winner = diff > 0 ? teamAName : teamBName
+        let loser = diff > 0 ? teamBName : teamAName
+        let amount = abs(Double(diff)) * config.pointValue
+        return "- Six Point Scotch: \(winner) +\(abs(diff)) pts. \(loser) owes $\(Int(amount.rounded()))."
+    }
+
+    private static func stablefordSummary(round: SaturdayRound) -> String {
+        var totals: [String: Int] = [:]
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        for entry in entries {
+            guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+            for player in round.players {
+                let gross = entry.grossByPlayerID[player.id] ?? (stub.par + 2)
+                let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                let output = StablefordEngine.scoreHole(
+                    StablefordHoleScoreInput(gross: gross, par: stub.par, handicapStrokes: strokes)
+                )
+                totals[player.id, default: 0] += output.points
+            }
+        }
+        guard let winner = round.players.max(by: { totals[$0.id, default: 0] < totals[$1.id, default: 0] }) else {
+            return "- Stableford: No result."
+        }
+        return "- Stableford: \(winner.name) won with \(totals[winner.id, default: 0]) points."
+    }
+
+    private static func skinsSummary(round: SaturdayRound, config: SkinsGameConfig) -> String {
+        var engine = SkinsEngine()
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        var lastOutput: SkinsHoleOutput?
+        for entry in entries {
+            guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+            let scores = round.players.map { player -> SkinsPlayerScore in
+                let gross = entry.grossByPlayerID[player.id] ?? stub.par
+                let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                return SkinsPlayerScore(playerID: player.id, gross: gross, handicapStrokes: strokes)
+            }
+            lastOutput = try? engine.scoreHole(
+                SkinsHoleInput(
+                    holeNumber: entry.holeNumber,
+                    par: stub.par,
+                    scores: scores,
+                    mode: config.mode,
+                    carryoverEnabled: config.carryoverEnabled
+                )
+            )
+        }
+        let grossTotals = lastOutput?.grossSkinsTotal ?? [:]
+        let netTotals = lastOutput?.netSkinsTotal ?? [:]
+        let top = round.players.max { lhs, rhs in
+            let lhsTotal = totalSkins(for: lhs.id, gross: grossTotals, net: netTotals, mode: config.mode)
+            let rhsTotal = totalSkins(for: rhs.id, gross: grossTotals, net: netTotals, mode: config.mode)
+            return lhsTotal < rhsTotal
+        }
+        guard let top else { return "- Skins: No result." }
+        let skins = totalSkins(for: top.id, gross: grossTotals, net: netTotals, mode: config.mode)
+        return "- Skins: \(top.name) won \(skins) skin\(skins == 1 ? "" : "s")."
+    }
+
+    private static func strokePlaySummary(round: SaturdayRound, config: StrokePlayGameConfig) -> String {
+        var engine = StrokePlayEngine(
+            config: StrokePlayEngineConfig(format: config.format, pairings: config.bestBallPairings)
+        )
+        let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+        var lastOutput: StrokePlayHoleOutput?
+        for entry in entries {
+            guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
+            let scores = round.players.map { player -> StrokePlayPlayerScore in
+                let gross = entry.grossByPlayerID[player.id] ?? stub.par
+                let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                return StrokePlayPlayerScore(playerID: player.id, gross: gross, handicapStrokes: strokes)
+            }
+            lastOutput = try? engine.scoreHole(
+                StrokePlayHoleInput(holeNumber: entry.holeNumber, par: stub.par, scores: scores)
+            )
+        }
+        guard let lastOutput else { return "- Stroke Play: No result." }
+        if config.format == .teamBestBall || config.format == .bestBall2v2 {
+            guard let topTeam = lastOutput.bestBallTeamStandings?.first else { return "- Stroke Play: No team result." }
+            let vsPar = topTeam.vsPar == 0 ? "E" : (topTeam.vsPar > 0 ? "+\(topTeam.vsPar)" : "\(topTeam.vsPar)")
+            return "- Stroke Play: \(topTeam.teamName) won at \(vsPar)."
+        }
+        guard let topPlayer = lastOutput.leaderboard.first,
+              let player = round.players.first(where: { $0.id == topPlayer.playerID }) else {
+            return "- Stroke Play: No result."
+        }
+        let vsPar = topPlayer.vsPar == 0 ? "E" : (topPlayer.vsPar > 0 ? "+\(topPlayer.vsPar)" : "\(topPlayer.vsPar)")
+        return "- Stroke Play: \(player.name) won at \(vsPar)."
+    }
+
+    private static func shortTeamName(_ players: [PlayerSnapshot], fallback: String) -> String {
+        guard !players.isEmpty else { return fallback }
+        return players
+            .map { String($0.name.split(separator: " ").first ?? Substring($0.name)) }
+            .joined(separator: "/")
+    }
+
+    private static func totalSkins(
+        for playerID: String,
+        gross: [String: Int],
+        net: [String: Int],
+        mode: SkinsMode
+    ) -> Int {
+        switch mode {
+        case .gross: return gross[playerID] ?? 0
+        case .net: return net[playerID] ?? 0
+        case .both: return (gross[playerID] ?? 0) + (net[playerID] ?? 0)
         }
     }
 }

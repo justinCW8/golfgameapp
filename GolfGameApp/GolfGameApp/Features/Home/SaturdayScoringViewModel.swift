@@ -204,6 +204,41 @@ final class SaturdayScoringViewModel: ObservableObject {
         resetInputsForCurrentHole()
     }
 
+    func autofillRemainingHolesForTesting() {
+        guard !round.isComplete else { return }
+        guard round.currentHole >= 1, round.currentHole <= 18 else { return }
+
+        for holeNumber in round.currentHole...18 {
+            guard let stub = round.holes.first(where: { $0.number == holeNumber }) else { continue }
+            var grossByPlayerID: [String: Int] = [:]
+            for player in round.players {
+                let handicapStrokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: stub.strokeIndex)
+                let adjustment = Int.random(in: -1...2)
+                let gross = max(1, stub.par + handicapStrokes + adjustment)
+                grossByPlayerID[player.id] = gross
+            }
+
+            let entry = SaturdayHoleEntry(
+                holeNumber: holeNumber,
+                grossByPlayerID: grossByPlayerID,
+                scotchFlags: ScotchHoleFlags(proxFeetByPlayerID: [:], requestPressBy: nil, requestRollBy: nil, requestRerollBy: nil),
+                nassauManualPressBy: nil
+            )
+
+            if let existingIndex = round.holeEntries.firstIndex(where: { $0.holeNumber == holeNumber }) {
+                round.holeEntries[existingIndex] = entry
+            } else {
+                round.holeEntries.append(entry)
+            }
+        }
+
+        round.currentHole = 18
+        round.isComplete = true
+        store.updateSaturdayRound(round)
+        replayEngines()
+        resetInputsForCurrentHole()
+    }
+
     // MARK: - Engine Replay
 
     func replayEngines() {

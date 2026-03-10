@@ -215,10 +215,21 @@ private struct SetupScreen1_Players: View {
                     SetupScreen2_Games(vm: vm, path: $path)
                         .navigationTitle("Select Games")
                 } label: {
-                    Text("Continue")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .foregroundStyle(vm.hasValidPlayers ? .blue : .secondary)
+                    HStack {
+                        Spacer()
+                        Text("Continue")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(vm.hasValidPlayers ? Color.green : Color(.systemGray3))
+                    )
                 }
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
                 .disabled(!vm.hasValidPlayers)
             }
         }
@@ -367,8 +378,15 @@ private struct SaturdayCourseSetupScreen: View {
                     }
                 }
             } footer: {
-                Text("Type at least 3 characters to search ~30,000 courses.")
-                    .font(.caption)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Type at least 3 characters to search ~30,000 courses.")
+                        .font(.caption)
+                    if let searchError = scanVM.searchErrorMessage {
+                        Text(searchError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
             }
 
             if !scanVM.apiResults.isEmpty {
@@ -504,10 +522,21 @@ private struct SaturdayCourseSetupScreen: View {
                     vm.holes = scanVM.toHoleStubs()
                     dismiss()
                 } label: {
-                    Text("Confirm Course")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .foregroundStyle(scanVM.isValid ? .blue : .secondary)
+                    HStack {
+                        Spacer()
+                        Text("Confirm Course")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(scanVM.isValid ? Color.green : Color(.systemGray3))
+                    )
                 }
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
                 .disabled(!scanVM.isValid)
             } footer: {
                 let missingPar = scanVM.scannedData.holes.filter { $0.par == nil }.count
@@ -855,10 +884,21 @@ private struct SetupScreen3_Teams: View {
                     SetupScreen4_Settings(vm: vm, path: $path)
                         .navigationTitle("Game Settings")
                 } label: {
-                    Text("Continue")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .foregroundStyle(.blue)
+                    HStack {
+                        Spacer()
+                        Text("Continue")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.green)
+                    )
                 }
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
             }
         }
     }

@@ -240,6 +240,7 @@ struct HomeView: View {
 struct ProfileView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var store: AppSessionStore
+    @EnvironmentObject private var buddyStore: BuddyStore
     @AppStorage("useStepperScoring") private var useStepperScoring = true
 
     var body: some View {
@@ -273,8 +274,167 @@ struct ProfileView: View {
                 } footer: {
                     Text("Stepper uses + / − buttons — one row per player, works at any text size. Button grid shows all scores at once.")
                 }
+
+                Section {
+                    NavigationLink {
+                        BuddyManagerView()
+                            .environmentObject(buddyStore)
+                    } label: {
+                        HStack {
+                            Label("Manage Buddies", systemImage: "person.2.fill")
+                            Spacer()
+                            Text("\(buddyStore.buddies.count)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Buddies")
+                } footer: {
+                    Text("Add a phone number for each buddy to pre-fill recipients when texting scorecards and settlements.")
+                }
             }
             .navigationTitle("Settings")
         }
+    }
+}
+
+private struct BuddyManagerView: View {
+    @EnvironmentObject private var buddyStore: BuddyStore
+    @State private var editingBuddy: Buddy?
+    @State private var showAdd = false
+
+    var body: some View {
+        List {
+            ForEach(buddyStore.buddies) { buddy in
+                Button {
+                    editingBuddy = buddy
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(buddy.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        HStack(spacing: 6) {
+                            Text(String(format: "HCP %.1f", buddy.handicapIndex))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let phone = buddy.phoneNumber, !phone.isEmpty {
+                                Text("·")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                Text(phone)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .onDelete { buddyStore.remove(at: $0) }
+        }
+        .navigationTitle("Manage Buddies")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showAdd = true
+                } label: {
+                    Label("Add Buddy", systemImage: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showAdd) {
+            BuddyEditorView()
+                .environmentObject(buddyStore)
+        }
+        .sheet(item: $editingBuddy) { buddy in
+            BuddyEditorView(existingBuddy: buddy)
+                .environmentObject(buddyStore)
+        }
+    }
+}
+
+private struct BuddyEditorView: View {
+    @EnvironmentObject private var buddyStore: BuddyStore
+    @Environment(\.dismiss) private var dismiss
+
+    let existingBuddy: Buddy?
+
+    @State private var name: String
+    @State private var handicapText: String
+    @State private var phoneNumber: String
+    @State private var showDuplicateAlert = false
+
+    init(existingBuddy: Buddy? = nil) {
+        self.existingBuddy = existingBuddy
+        _name = State(initialValue: existingBuddy?.name ?? "")
+        if let handicap = existingBuddy?.handicapIndex {
+            _handicapText = State(initialValue: String(format: "%.1f", handicap))
+        } else {
+            _handicapText = State(initialValue: "0.0")
+        }
+        _phoneNumber = State(initialValue: existingBuddy?.phoneNumber ?? "")
+    }
+
+    private var title: String {
+        existingBuddy == nil ? "Add Buddy" : "Edit Buddy"
+    }
+
+    private var saveLabel: String {
+        existingBuddy == nil ? "Add" : "Save"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Buddy") {
+                    TextField("Name", text: $name)
+                    TextField("Handicap Index", text: $handicapText)
+                        .keyboardType(.decimalPad)
+                    TextField("Phone Number", text: $phoneNumber)
+                        .keyboardType(.phonePad)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+            }
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saveLabel) { saveBuddy() }
+                }
+            }
+            .alert("Buddy Name Exists", isPresented: $showDuplicateAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Use a unique name for each buddy.")
+            }
+        }
+    }
+
+    private func saveBuddy() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        let existingNameConflict = buddyStore.buddies.contains {
+            $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame && $0.id != existingBuddy?.id
+        }
+        guard !existingNameConflict else {
+            showDuplicateAlert = true
+            return
+        }
+
+        let handicap = min(max(Double(handicapText) ?? 0, 0), 54)
+        let normalizedPhone = BuddyStore.normalizedPhoneNumber(phoneNumber)
+
+        if var buddy = existingBuddy {
+            buddy.name = trimmedName
+            buddy.handicapIndex = handicap
+            buddy.phoneNumber = normalizedPhone
+            buddyStore.update(buddy)
+        } else {
+            buddyStore.add(name: trimmedName, handicapIndex: handicap, phoneNumber: normalizedPhone)
+        }
+        dismiss()
     }
 }

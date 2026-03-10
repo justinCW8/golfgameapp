@@ -1000,6 +1000,18 @@ private struct SaturdayScoringContent: View {
                 .buttonStyle(.bordered)
                 .tint(.orange)
             }
+#if DEBUG
+            if !vm.isComplete {
+                Button {
+                    vm.autofillRemainingHolesForTesting()
+                } label: {
+                    Label("Dev: Auto-Fill Remaining Holes", systemImage: "wand.and.stars")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.purple)
+            }
+#endif
         }
     }
 
@@ -1062,6 +1074,18 @@ struct ScorecardSheet: View {
         return gross - strokes
     }
 
+    private func handicapStrokes(for player: PlayerSnapshot, on stub: CourseHoleStub?, holeNumber: Int) -> Int {
+        let si = stub?.strokeIndex ?? holeNumber
+        return strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: si)
+    }
+
+    private func strokeMarker(_ count: Int) -> String {
+        if count <= 0 { return "" }
+        if count == 1 { return "•" }
+        if count == 2 { return "••" }
+        return "•x\(count)"
+    }
+
     private func netColor(_ delta: Int) -> Color {
         switch delta {
         case ...(-2): return Color(red: 0.85, green: 0.65, blue: 0.10)
@@ -1095,6 +1119,8 @@ struct ScorecardSheet: View {
                             .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         Text("Par").frame(width: 36, alignment: .center)
                             .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text("SI").frame(width: 32, alignment: .center)
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         ForEach(round.players) { player in
                             Text(firstName(player.name))
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -1115,14 +1141,24 @@ struct ScorecardSheet: View {
                                     .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
                                 Text("\(par)").frame(width: 36, alignment: .center)
                                     .font(.caption2).foregroundStyle(.secondary)
+                                Text("\(stub?.strokeIndex ?? entry.holeNumber)").frame(width: 32, alignment: .center)
+                                    .font(.caption2).foregroundStyle(.secondary)
                                 ForEach(round.players) { player in
                                     VStack(spacing: 1) {
                                         PGAScoreCell(gross: entry.grossByPlayerID[player.id], par: par)
                                         if let g = entry.grossByPlayerID[player.id] {
                                             let net = netScore(for: player, on: stub, holeNumber: entry.holeNumber, gross: g)
-                                            Text("\(net)")
-                                                .font(.system(size: 9).weight(.medium))
-                                                .foregroundStyle(netColor(net - par))
+                                            let strokes = handicapStrokes(for: player, on: stub, holeNumber: entry.holeNumber)
+                                            HStack(spacing: 2) {
+                                                if strokes > 0 {
+                                                    Text(strokeMarker(strokes))
+                                                        .font(.system(size: 8).weight(.bold))
+                                                        .foregroundStyle(.blue)
+                                                }
+                                                Text("\(net)")
+                                                    .font(.system(size: 9).weight(.medium))
+                                                    .foregroundStyle(netColor(net - par))
+                                            }
                                         }
                                     }
                                     .frame(maxWidth: .infinity)
@@ -1137,6 +1173,8 @@ struct ScorecardSheet: View {
                                     Text("\(round.holes.filter { $0.number <= 9 }.map(\.par).reduce(0,+))")
                                         .frame(width: 36, alignment: .center)
                                         .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                                    Text("—").frame(width: 32, alignment: .center)
+                                        .font(.caption2).foregroundStyle(.secondary)
                                     ForEach(round.players) { player in
                                         if let totals = netTotals(for: player, filter: { $0.holeNumber <= 9 }) {
                                             VStack(spacing: 1) {
@@ -1166,6 +1204,8 @@ struct ScorecardSheet: View {
                         Text("\(round.holes.filter { $0.number > 9 }.map(\.par).reduce(0,+))")
                             .frame(width: 36, alignment: .center)
                             .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                        Text("—").frame(width: 32, alignment: .center)
+                            .font(.caption2).foregroundStyle(.secondary)
                         ForEach(round.players) { player in
                             if let totals = netTotals(for: player, filter: { $0.holeNumber > 9 }) {
                                 VStack(spacing: 1) {
@@ -1187,6 +1227,8 @@ struct ScorecardSheet: View {
                             .font(.caption.weight(.bold)).foregroundStyle(.secondary)
                         Text("—").frame(width: 36, alignment: .center)
                             .font(.caption2).foregroundStyle(.secondary)
+                        Text("—").frame(width: 32, alignment: .center)
+                            .font(.caption2).foregroundStyle(.secondary)
                         ForEach(round.players) { player in
                             if let totals = netTotals(for: player, filter: { _ in true }) {
                                 VStack(spacing: 1) {
@@ -1197,6 +1239,24 @@ struct ScorecardSheet: View {
                             } else {
                                 Text("—").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.bold))
                             }
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(Color(.tertiarySystemGroupedBackground))
+
+                    // Bottom player-name row (mirrors top header for quick reference)
+                    HStack(spacing: 0) {
+                        Text("H").frame(width: 32, alignment: .center)
+                            .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        Text("Par").frame(width: 36, alignment: .center)
+                            .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        Text("SI").frame(width: 32, alignment: .center)
+                            .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        ForEach(round.players) { player in
+                            Text(firstName(player.name))
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)

@@ -26,6 +26,26 @@ struct CourseAPIResult: Identifiable {
     }
 }
 
+enum CourseSearchError: LocalizedError {
+    case missingAPIKey
+    case unauthorized
+    case serviceUnavailable(statusCode: Int)
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey:
+            return "Course search is not configured. Add a valid key to Secrets.golfCourseAPIKey."
+        case .unauthorized:
+            return "Course search authorization failed. Check the GolfCourseAPI key."
+        case .serviceUnavailable(let statusCode):
+            return "Course search failed (\(statusCode)). Please try again."
+        case .invalidResponse:
+            return "Course search returned an unexpected response."
+        }
+    }
+}
+
 // MARK: - Service
 
 struct CourseSearchService {
@@ -33,15 +53,29 @@ struct CourseSearchService {
     private static let baseURL = "https://api.golfcourseapi.com/v1"
 
     func search(query: String) async throws -> [CourseAPIResult] {
+        let trimmedKey = Self.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedKey.isEmpty || trimmedKey == "YOUR_GOLF_COURSE_API_KEY" {
+            throw CourseSearchError.missingAPIKey
+        }
+
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "\(Self.baseURL)/search?search_query=\(encoded)")
         else { return [] }
 
         var request = URLRequest(url: url)
-        request.setValue("Key \(Self.apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 20
+        request.setValue("Key \(trimmedKey)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        guard let http = response as? HTTPURLResponse else {
+            throw CourseSearchError.invalidResponse
+        }
+        guard http.statusCode == 200 else {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw CourseSearchError.unauthorized
+            }
+            throw CourseSearchError.serviceUnavailable(statusCode: http.statusCode)
+        }
 
         let decoded = try JSONDecoder().decode(GolfAPIResponse.self, from: data)
         return decoded.courses.map { convert($0) }
