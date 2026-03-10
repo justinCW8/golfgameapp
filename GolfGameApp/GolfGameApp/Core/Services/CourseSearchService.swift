@@ -53,32 +53,56 @@ struct CourseSearchService {
     private static let baseURL = "https://api.golfcourseapi.com/v1"
 
     func search(query: String) async throws -> [CourseAPIResult] {
+        let fallback = LocalCourseFallbackCatalog.search(query: query)
         let trimmedKey = Self.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedKey.isEmpty || trimmedKey == "YOUR_GOLF_COURSE_API_KEY" {
+            if !fallback.isEmpty {
+                return rankedAndDeduped(fallback, for: query)
+            }
             throw CourseSearchError.missingAPIKey
         }
 
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "\(Self.baseURL)/search?search_query=\(encoded)")
-        else { return [] }
+        else { return rankedAndDeduped(fallback, for: query) }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         request.setValue("Key \(trimmedKey)", forHTTPHeaderField: "Authorization")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            if !fallback.isEmpty {
+                return rankedAndDeduped(fallback, for: query)
+            }
+            throw error
+        }
+
         guard let http = response as? HTTPURLResponse else {
+            if !fallback.isEmpty {
+                return rankedAndDeduped(fallback, for: query)
+            }
             throw CourseSearchError.invalidResponse
         }
         guard http.statusCode == 200 else {
             if http.statusCode == 401 || http.statusCode == 403 {
+                if !fallback.isEmpty {
+                    return rankedAndDeduped(fallback, for: query)
+                }
                 throw CourseSearchError.unauthorized
+            }
+            if !fallback.isEmpty {
+                return rankedAndDeduped(fallback, for: query)
             }
             throw CourseSearchError.serviceUnavailable(statusCode: http.statusCode)
         }
 
         let decoded = try JSONDecoder().decode(GolfAPIResponse.self, from: data)
-        return decoded.courses.map { convert($0) }
+        let mapped = decoded.courses.map { convert($0) }
+        return rankedAndDeduped(mapped + fallback, for: query)
     }
 
     private func convert(_ course: GolfAPICourse) -> CourseAPIResult {
@@ -105,6 +129,59 @@ struct CourseSearchService {
             teeRatings: teeRatings,
             holesByTee: holesByTee
         )
+    }
+
+    private func rankedAndDeduped(_ courses: [CourseAPIResult], for query: String) -> [CourseAPIResult] {
+        let normalizedQuery = normalize(query)
+        let tokens = normalizedQuery
+            .split(whereSeparator: { $0.isWhitespace || $0 == "," })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+
+        var seen = Set<String>()
+        let unique = courses.filter { course in
+            let key = "\(normalize(course.displayName))|\(normalize(course.city))|\(normalize(course.state))"
+            return seen.insert(key).inserted
+        }
+
+        return unique.sorted { lhs, rhs in
+            let lScore = relevanceScore(lhs, normalizedQuery: normalizedQuery, tokens: tokens)
+            let rScore = relevanceScore(rhs, normalizedQuery: normalizedQuery, tokens: tokens)
+            if lScore != rScore { return lScore > rScore }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    private func relevanceScore(_ course: CourseAPIResult, normalizedQuery: String, tokens: [String]) -> Int {
+        let name = normalize(course.displayName)
+        let club = normalize(course.clubName)
+        let location = normalize(course.location)
+        let haystack = "\(name) \(location)"
+
+        var score = 0
+        if name == normalizedQuery { score += 200 }
+        if club == normalizedQuery { score += 180 }
+        if name.hasPrefix(normalizedQuery) { score += 120 }
+        if club.hasPrefix(normalizedQuery) { score += 110 }
+        if name.contains(normalizedQuery) { score += 90 }
+        if location.contains(normalizedQuery) { score += 45 }
+
+        for token in tokens {
+            if name.contains(token) { score += 25 }
+            if club.contains(token) { score += 20 }
+            if location.contains(token) { score += 12 }
+            if haystack.contains(token) { score += 5 }
+        }
+        return score
+    }
+
+    private func normalize(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "[^a-z0-9 ]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 }
 

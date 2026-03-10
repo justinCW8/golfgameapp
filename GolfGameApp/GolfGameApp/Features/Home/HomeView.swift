@@ -24,8 +24,8 @@ struct HomeView: View {
                     noRoundView
                 }
             }
-            .navigationTitle("Saturday")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SaturdayRoute.self) { route in
                 switch route {
                 case .roundSetup:
@@ -40,46 +40,108 @@ struct HomeView: View {
     // MARK: - State A: No active round
 
     private var noRoundView: some View {
-        VStack(spacing: 0) {
-            Spacer()
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.95, green: 0.98, blue: 0.96), Color(red: 0.92, green: 0.95, blue: 0.98)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                Image(systemName: "flag.fill")
-                    .font(.system(size: 52))
-                    .foregroundStyle(.green)
+            Circle()
+                .fill(Color.green.opacity(0.12))
+                .frame(width: 360, height: 360)
+                .offset(x: 150, y: -260)
 
-                VStack(spacing: 6) {
-                    Text("Saturday Money Mode")
-                        .font(.title2.weight(.bold))
-                    Text("Four players. One tee. Zero math disputes.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .padding(.horizontal, 32)
+            Circle()
+                .fill(Color.blue.opacity(0.08))
+                .frame(width: 280, height: 280)
+                .offset(x: -170, y: 260)
 
-            Spacer()
+            VStack(spacing: 18) {
+                heroCard
 
-            VStack(spacing: 12) {
                 Button {
                     path.append(.roundSetup)
                 } label: {
-                    Label("Start Round", systemImage: "plus.circle.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                    VStack(spacing: 2) {
+                        Label("Start Round", systemImage: "plus.circle.fill")
+                            .font(.headline)
+                        Text("New setup in about 20 seconds")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .tint(Color(red: 0.12, green: 0.63, blue: 0.35))
                 .controlSize(.large)
-                .padding(.horizontal, 24)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                quickUtilityRow
 
                 if !buddyStore.buddies.isEmpty {
                     recentPlayersPreview
+                } else {
+                    Text("Add buddies in Settings to prefill your Saturday foursome.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 0)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                SaturdayBrandMark()
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Game Day Golf")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                    Text("Side rounds with your crew")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.bottom, 40)
+
+            HStack(spacing: 10) {
+                HomeStatPill(label: "Mode", value: "Game Day")
+                HomeStatPill(label: "Players", value: "2-4")
+                HomeStatPill(label: "Buddies", value: "\(buddyStore.buddies.count)")
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.white.opacity(0.45), lineWidth: 1)
+        )
+    }
+
+    private var quickUtilityRow: some View {
+        HStack(spacing: 10) {
+            QuickUtilityChip(
+                title: "Buddies",
+                subtitle: "\(buddyStore.buddies.count) saved",
+                systemImage: "person.2.fill"
+            )
+            QuickUtilityChip(
+                title: "Last Round",
+                subtitle: store.completedRounds.isEmpty ? "No history" : "View history tab",
+                systemImage: "clock.arrow.circlepath"
+            )
         }
     }
 
@@ -88,29 +150,38 @@ struct HomeView: View {
             Text("Recent Players")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 24)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     ForEach(buddyStore.buddies.prefix(6)) { buddy in
-                        VStack(spacing: 4) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Circle()
-                                .fill(Color(.secondarySystemBackground))
-                                .frame(width: 44, height: 44)
+                                .fill(Color(.systemBackground))
+                                .frame(width: 38, height: 38)
                                 .overlay(
                                     Text(String(buddy.name.prefix(1)))
-                                        .font(.headline)
+                                        .font(.subheadline.weight(.bold))
                                         .foregroundStyle(.primary)
                                 )
-                            Text(buddy.name.components(separatedBy: " ").first ?? buddy.name)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(buddy.name.components(separatedBy: " ").first ?? buddy.name)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(String(format: "HCP %.1f", buddy.handicapIndex))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
-                .padding(.horizontal, 24)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     // MARK: - State B: Active round
@@ -232,6 +303,108 @@ struct HomeView: View {
             }
             Spacer()
         }
+    }
+}
+
+private struct SaturdayBrandMark: View {
+    var body: some View {
+        ZStack(alignment: .center) {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.06, green: 0.36, blue: 0.22), Color(red: 0.14, green: 0.62, blue: 0.35)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Circle()
+                .fill(Color(red: 0.53, green: 0.82, blue: 0.49))
+                .frame(width: 56, height: 56)
+
+            Circle()
+                .fill(.white.opacity(0.96))
+                .frame(width: 38, height: 38)
+                .overlay {
+                    VStack(spacing: 4) {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.black.opacity(0.16)).frame(width: 3, height: 3)
+                            Circle().fill(Color.black.opacity(0.16)).frame(width: 3, height: 3)
+                        }
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.black.opacity(0.16)).frame(width: 3, height: 3)
+                            Circle().fill(Color.black.opacity(0.16)).frame(width: 3, height: 3)
+                        }
+                    }
+                }
+                .offset(x: -5, y: 8)
+
+            Rectangle()
+                .fill(.white)
+                .frame(width: 2.5, height: 24)
+                .offset(x: 14, y: -7)
+
+            Path { p in
+                p.move(to: CGPoint(x: 0, y: 0))
+                p.addLine(to: CGPoint(x: 16, y: 5))
+                p.addLine(to: CGPoint(x: 0, y: 11))
+                p.closeSubpath()
+            }
+            .fill(Color(red: 1.00, green: 0.90, blue: 0.25))
+            .frame(width: 16, height: 11, alignment: .leading)
+            .offset(x: 22, y: -12)
+        }
+        .frame(width: 82, height: 82)
+    }
+}
+
+private struct HomeStatPill: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private struct QuickUtilityChip: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(red: 0.08, green: 0.47, blue: 0.29))
+                .padding(7)
+                .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

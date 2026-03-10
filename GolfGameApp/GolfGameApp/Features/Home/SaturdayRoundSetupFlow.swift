@@ -381,10 +381,10 @@ private struct SaturdayCourseSetupScreen: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Type at least 3 characters to search ~30,000 courses.")
                         .font(.caption)
-                    if let searchError = scanVM.searchErrorMessage {
-                        Text(searchError)
+                    if let guidance = scanVM.searchGuidanceMessage {
+                        Text(guidance)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(scanVM.isSearchGuidanceError ? .red : .secondary)
                     }
                 }
             }
@@ -481,13 +481,14 @@ private struct SaturdayCourseSetupScreen: View {
 
             Section {
                 HStack {
-                    Text("Hole").frame(width: 36, alignment: .center)
+                    Text("Hole").frame(width: CourseReviewLayout.holeColumnWidth, alignment: .center)
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text("Par").frame(width: 44, alignment: .center)
+                    Text("Par").frame(width: CourseReviewLayout.controlColumnWidth, alignment: .center)
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text("Stroke Index").frame(maxWidth: .infinity, alignment: .center)
+                    Text("Stroke Index").frame(width: CourseReviewLayout.controlColumnWidth, alignment: .center)
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 ForEach(scanVM.scannedData.holes, id: \.number) { hole in
                     HoleReviewRow(
                         hole: hole,
