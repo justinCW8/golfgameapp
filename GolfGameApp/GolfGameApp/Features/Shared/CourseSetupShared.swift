@@ -7,6 +7,12 @@ import PhotosUI
 // ScanViewModel, ImagePicker, and HoleReviewRow are declared once here (internal) so
 // each feature file can use them without redeclaring private copies.
 
+enum CourseReviewLayout {
+    static let holeColumnWidth: CGFloat = 34
+    static let controlColumnWidth: CGFloat = 126
+    static let rowSpacing: CGFloat = 12
+}
+
 // MARK: - ScanViewModel
 
 @MainActor
@@ -29,6 +35,7 @@ final class ScanViewModel: ObservableObject {
     @Published var apiResults: [CourseAPIResult] = []
     @Published var isSearching: Bool = false
     @Published var searchErrorMessage: String? = nil
+    @Published private(set) var hasSearchedCurrentQuery: Bool = false
     private var searchTask: Task<Void, Never>? = nil
     private var apiHolesByTee: [String: [ScannedHole]] = [:]
 
@@ -93,24 +100,40 @@ final class ScanViewModel: ObservableObject {
             apiResults = []
             isSearching = false
             searchErrorMessage = nil
+            hasSearchedCurrentQuery = false
             return
         }
         isSearching = true
         searchErrorMessage = nil
+        hasSearchedCurrentQuery = false
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 s debounce
             guard !Task.isCancelled else { return }
             do {
                 apiResults = try await courseSearch.search(query: query)
                 searchErrorMessage = nil
+                hasSearchedCurrentQuery = true
             } catch is CancellationError {
                 return
             } catch {
                 apiResults = []
                 searchErrorMessage = error.localizedDescription
+                hasSearchedCurrentQuery = true
             }
             isSearching = false
         }
+    }
+
+    var searchGuidanceMessage: String? {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 3 else { return nil }
+        if let searchErrorMessage { return searchErrorMessage }
+        guard hasSearchedCurrentQuery, !isSearching, apiResults.isEmpty else { return nil }
+        return "No courses found. Try adding city/state (e.g. \"Ross Bridge Birmingham AL\")."
+    }
+
+    var isSearchGuidanceError: Bool {
+        searchErrorMessage != nil
     }
 
     func applyAPIResult(_ result: CourseAPIResult) {
@@ -130,6 +153,7 @@ final class ScanViewModel: ObservableObject {
         applyRatingForCurrentTee(from: scannedData)
         apiResults = []
         searchErrorMessage = nil
+        hasSearchedCurrentQuery = false
         searchQuery = ""
         step = .reviewing
     }
@@ -215,9 +239,9 @@ struct HoleReviewRow: View {
     let onSIChange: (Int) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: CourseReviewLayout.rowSpacing) {
             Text("\(hole.number)")
-                .frame(width: 36, alignment: .center)
+                .frame(width: CourseReviewLayout.holeColumnWidth, alignment: .center)
                 .foregroundStyle(.secondary)
 
             Stepper(value: Binding(
@@ -225,23 +249,24 @@ struct HoleReviewRow: View {
                 set: { onParChange($0) }
             ), in: 3...5) {
                 Text(hole.par.map { "\($0)" } ?? "–")
-                    .frame(width: 28, alignment: .center)
+                    .frame(width: 30, alignment: .center)
                     .foregroundStyle(hole.par == nil ? .orange : .primary)
             }
-            .frame(width: 110)
+            .frame(width: CourseReviewLayout.controlColumnWidth)
 
             Stepper(value: Binding(
                 get: { hole.strokeIndex ?? 1 },
                 set: { onSIChange($0) }
             ), in: 1...18) {
                 Text(hole.strokeIndex.map { "\($0)" } ?? "–")
-                    .frame(width: 28, alignment: .center)
+                    .frame(width: 30, alignment: .center)
                     .foregroundStyle(
                         isDuplicateSI ? .red :
                         hole.strokeIndex == nil ? .orange : .primary
                     )
             }
-            .frame(maxWidth: .infinity)
+            .frame(width: CourseReviewLayout.controlColumnWidth)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
