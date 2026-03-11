@@ -110,52 +110,37 @@ struct Buddy: Codable, Identifiable, Hashable {
 final class BuddyStore: ObservableObject {
     @Published var buddies: [Buddy] = []
     private static let key = "golf_buddies"
+    private static let rosterVersionKey = "golf_buddies_roster_version"
+    private static let currentRosterVersion = 2
+    private static let defaultRoster: [(String, Double)] = [
+        ("Chad R", 4.9),
+        ("Justin W", 9.5),
+        ("Dulla", 11.3),
+        ("Jamie P", 11.4),
+        ("K-Von", 14.1),
+        ("Shan", 16.2),
+        ("BC", 16.4),
+        ("Ginly", 22.4)
+    ]
 
     init() {
         load()
-        if buddies.isEmpty {
-            seedDefaults()
-        } else {
-            backfillTestingBuddiesIfNeeded()
-        }
+        migrateRosterIfNeeded()
+        if buddies.isEmpty { seedDefaults() }
     }
 
     private func seedDefaults() {
-        let defaults: [(String, Double, String?)] = [
-            ("Justin Waite", 9.5, "+13122872941"),
-            ("Brendan Clarke", 16.4, "+13125550000"),
-            ("Jeff Dulla", 11.3, "+13125550000"),
-            ("Jamie Petrzelka", 11.4, "+13125550000")
-        ]
-        for (name, hi, phone) in defaults {
-            buddies.append(Buddy(name: name, handicapIndex: hi, phoneNumber: Self.normalizedPhoneNumber(phone)))
-        }
+        buddies = Self.defaultRoster.map { Buddy(name: $0.0, handicapIndex: $0.1, phoneNumber: nil) }
+        UserDefaults.standard.set(Self.currentRosterVersion, forKey: Self.rosterVersionKey)
         save()
     }
 
-    private func backfillTestingBuddiesIfNeeded() {
-        let defaults: [(String, Double, String?)] = [
-            ("Justin Waite", 9.5, "+13122872941"),
-            ("Brendan Clarke", 16.4, "+13125550000"),
-            ("Jeff Dulla", 11.3, "+13125550000"),
-            ("Jamie Petrzelka", 11.4, "+13125550000")
-        ]
-
-        var changed = false
-        for (name, hi, phone) in defaults {
-            if let idx = buddies.firstIndex(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
-                let normalizedPhone = Self.normalizedPhoneNumber(phone)
-                if buddies[idx].phoneNumber != normalizedPhone {
-                    buddies[idx].phoneNumber = normalizedPhone
-                    changed = true
-                }
-            } else {
-                buddies.append(Buddy(name: name, handicapIndex: hi, phoneNumber: Self.normalizedPhoneNumber(phone)))
-                changed = true
-            }
-        }
-
-        if changed { save() }
+    private func migrateRosterIfNeeded() {
+        let savedVersion = UserDefaults.standard.integer(forKey: Self.rosterVersionKey)
+        guard savedVersion < Self.currentRosterVersion else { return }
+        buddies = Self.defaultRoster.map { Buddy(name: $0.0, handicapIndex: $0.1, phoneNumber: nil) }
+        UserDefaults.standard.set(Self.currentRosterVersion, forKey: Self.rosterVersionKey)
+        save()
     }
 
     static func normalizedPhoneNumber(_ raw: String?) -> String? {
@@ -962,9 +947,36 @@ struct StablefordGameConfig: Codable, Equatable {
         case standard
         case modified
     }
+    enum Format: String, Codable {
+        case individual
+        case team2v2
+    }
     var scoringType: ScoringType
+    var format: Format
 
-    static let `default` = StablefordGameConfig(scoringType: .standard)
+    static let `default` = StablefordGameConfig(scoringType: .standard, format: .individual)
+
+    init(scoringType: ScoringType, format: Format) {
+        self.scoringType = scoringType
+        self.format = format
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scoringType
+        case format
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scoringType = try container.decodeIfPresent(ScoringType.self, forKey: .scoringType) ?? .standard
+        format = try container.decodeIfPresent(Format.self, forKey: .format) ?? .individual
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(scoringType, forKey: .scoringType)
+        try container.encode(format, forKey: .format)
+    }
 }
 
 struct SkinsGameConfig: Codable, Equatable {
@@ -1097,13 +1109,14 @@ struct SaturdayRound: Codable, Identifiable {
         self.updatedAt = updatedAt
     }
 
-    /// True if any selected game requires teams (Scotch or Nassau fourball)
+    /// True if any selected game requires teams (Scotch, Nassau fourball, or Team Stableford).
     var requiresTeams: Bool {
         activeGames.contains { game in
             switch game.type {
             case .sixPointScotch: return true
             case .nassau: return game.nassauConfig?.format == .fourball
-            case .stableford, .skins, .strokePlay: return false
+            case .stableford: return game.stablefordConfig?.format == .team2v2
+            case .skins, .strokePlay: return false
             }
         }
     }

@@ -29,9 +29,17 @@ struct NassauLiveState {
 }
 
 struct StablefordLiveState {
+    var format: StablefordGameConfig.Format = .individual
     var pointsByPlayerID: [String: Int] = [:]
+    var teamPointsBySide: [TeamSide: Int] = [:]
 
     var pillText: String {
+        if format == .team2v2 {
+            let a = teamPointsBySide[.teamA, default: 0]
+            let b = teamPointsBySide[.teamB, default: 0]
+            if a == b { return "AS" }
+            return (a > b ? "A" : "B") + " +\(abs(a - b))"
+        }
         guard let top = pointsByPlayerID.max(by: { $0.value < $1.value }) else { return "—" }
         return "+\(top.value)"
     }
@@ -353,9 +361,10 @@ final class SaturdayScoringViewModel: ObservableObject {
         }
 
         // Stableford replay
-        if round.activeGames.contains(where: { $0.type == .stableford }) {
+        if let stablefordGame = round.activeGames.first(where: { $0.type == .stableford }) {
             var pointsByPlayerID: [String: Int] = [:]
             for player in round.players { pointsByPlayerID[player.id] = 0 }
+            let config = stablefordGame.stablefordConfig ?? .default
 
             for entry in entries {
                 guard let stub = round.holes.first(where: { $0.number == entry.holeNumber }) else { continue }
@@ -366,7 +375,26 @@ final class SaturdayScoringViewModel: ObservableObject {
                     pointsByPlayerID[player.id, default: 0] += output.points
                 }
             }
-            stablefordState = StablefordLiveState(pointsByPlayerID: pointsByPlayerID)
+
+            var teamPointsBySide: [TeamSide: Int] = [:]
+            if config.format == .team2v2 {
+                let teamAIDs = Set(round.teamAPlayers.map(\.id))
+                let teamBIDs = Set(round.teamBPlayers.map(\.id))
+                teamPointsBySide[.teamA] = pointsByPlayerID
+                    .filter { teamAIDs.contains($0.key) }
+                    .map(\.value)
+                    .reduce(0, +)
+                teamPointsBySide[.teamB] = pointsByPlayerID
+                    .filter { teamBIDs.contains($0.key) }
+                    .map(\.value)
+                    .reduce(0, +)
+            }
+
+            stablefordState = StablefordLiveState(
+                format: config.format,
+                pointsByPlayerID: pointsByPlayerID,
+                teamPointsBySide: teamPointsBySide
+            )
         }
 
         // Skins replay
