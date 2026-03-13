@@ -107,8 +107,10 @@ struct SixPointScotchEngine {
         applyBucket(points: 1, winner: proxW,    toA: &rawA, toB: &rawB)
 
         let buckets: [(String, Int, TeamSide?)] = [
-            ("Low Man", 2, lowManW), ("Low Team", 2, lowTeamW),
-            ("Birdie", 1, birdieW), ("Prox", 1, proxW)
+            ("Low Man", 2, lowManW),
+            ("Low Team", 2, lowTeamW),
+            ("Birdie", 1, birdieW),
+            ("Prox", 1, proxW)
         ]
         for (name, pts, winner) in buckets {
             switch winner {
@@ -171,10 +173,13 @@ struct SixPointScotchEngine {
     }
 
     private func lowManWinner(teamANet: [Int], teamBNet: [Int]) -> TeamSide? {
-        let a = teamANet.min() ?? Int.max
-        let b = teamBNet.min() ?? Int.max
-        if a == b { return nil }
-        return a < b ? .teamA : .teamB
+        let candidates: [(TeamSide, Int)] =
+            teamANet.map { (.teamA, $0) } +
+            teamBNet.map { (.teamB, $0) }
+        guard let bestNet = candidates.map(\.1).min() else { return nil }
+        let winners = candidates.filter { $0.1 == bestNet }
+        guard winners.count == 1 else { return nil }
+        return winners[0].0
     }
 
     private func lowTeamWinner(teamANet: [Int], teamBNet: [Int]) -> TeamSide? {

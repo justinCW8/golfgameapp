@@ -36,6 +36,7 @@ private struct SaturdayScoringContent: View {
     @State private var showEditPreviousAlert = false
     @State private var showScorecard = false
     @State private var showScotchAudit = false
+    @State private var rulesGame: SaturdayGameConfig?
     @AppStorage("useStepperScoring") private var useStepperScoring = true
 
     init(round: SaturdayRound, store: AppSessionStore, path: Binding<[SaturdayRoute]>) {
@@ -82,6 +83,9 @@ private struct SaturdayScoringContent: View {
         .background(Color(.systemGroupedBackground))
         .sheet(isPresented: $showScorecard) {
             ScorecardSheet(round: vm.round)
+        }
+        .sheet(item: $rulesGame) { game in
+            GameRulesSheet(game: game)
         }
         .alert("End Round?", isPresented: $showEndRoundAlert) {
             Button("End Round", role: .destructive) {
@@ -156,12 +160,23 @@ private struct SaturdayScoringContent: View {
     private var currentStandings: some View {
         let decisiveGames = vm.round.activeGames.filter { $0.type != .strokePlay }
         if !vm.round.holeEntries.isEmpty, !vm.isComplete, !decisiveGames.isEmpty {
-            VStack(spacing: 0) {
-                ForEach(Array(decisiveGames.enumerated()), id: \.element.id) { idx, game in
-                    if idx > 0 { Divider().padding(.leading, 16) }
+            VStack(spacing: 8) {
+                ForEach(decisiveGames, id: \.id) { game in
+                    let accent = gameChipAccent(for: game.type)
                     HStack(alignment: .center) {
-                        Text(game.type.title)
-                            .font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Text(game.type.title)
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(accent)
+                            Button {
+                                rulesGame = game
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(accent.opacity(0.9))
+                            }
+                            .buttonStyle(.plain)
+                        }
                         Spacer()
                         VStack(alignment: .trailing, spacing: 1) {
                             standingLabel(for: game)
@@ -172,16 +187,34 @@ private struct SaturdayScoringContent: View {
                                 let isA = aMult > bMult
                                 let isB = bMult > aMult
                                 Text(pts > 0 ? "Last +\(pts)" : "Last push")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(isA ? Color.blue : isB ? Color.orange : Color.secondary)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(isA ? Color.blue : isB ? Color.orange : accent.opacity(0.85))
                             }
                         }
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .background(gameChipBackground(for: game.type), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(accent.opacity(0.2), lineWidth: 1)
+                    )
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
         }
+    }
+
+    private func gameChipAccent(for type: GameType) -> Color {
+        switch type {
+        case .sixPointScotch: return .orange
+        case .stableford: return .purple
+        case .nassau: return .blue
+        case .skins: return .pink
+        case .strokePlay: return .teal
+        }
+    }
+
+    private func gameChipBackground(for type: GameType) -> Color {
+        gameChipAccent(for: type).opacity(0.08)
     }
 
     @ViewBuilder
@@ -190,35 +223,46 @@ private struct SaturdayScoringContent: View {
         case .sixPointScotch:
             let diff = vm.scotchState.totalA - vm.scotchState.totalB
             if diff == 0 {
-                Text("AS").font(.headline.weight(.bold)).foregroundStyle(.secondary)
+                Text("AS").font(.title3.weight(.bold)).foregroundStyle(.secondary)
             } else {
                 let leader = diff > 0 ? teamInitials(.teamA) : teamInitials(.teamB)
                 Text("\(leader) +\(abs(diff))")
-                    .font(.headline.weight(.bold)).foregroundStyle(.green)
+                    .font(.title3.weight(.bold)).foregroundStyle(.green)
             }
         case .nassau:
             let s = vm.nassauState.overallStatus
             Text(nassauDisplayString(s))
-                .font(.headline.weight(.bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(s.leadingTeam == nil ? Color.secondary : Color.green)
         case .stableford:
-            if let top = vm.stablefordState.pointsByPlayerID.max(by: { $0.value < $1.value }) {
+            if vm.stablefordState.format == .team2v2 {
+                let a = vm.stablefordState.teamPointsBySide[.teamA, default: 0]
+                let b = vm.stablefordState.teamPointsBySide[.teamB, default: 0]
+                if a == b {
+                    Text("AS")
+                        .font(.title3.weight(.bold)).foregroundStyle(.secondary)
+                } else {
+                    let leader = a > b ? teamInitials(.teamA) : teamInitials(.teamB)
+                    Text("\(leader) +\(abs(a - b))")
+                        .font(.title3.weight(.bold)).foregroundStyle(.green)
+                }
+            } else if let top = vm.stablefordState.pointsByPlayerID.max(by: { $0.value < $1.value }) {
                 Text("\(vm.playerName(for: top.key)) +\(top.value)")
-                    .font(.headline.weight(.bold)).foregroundStyle(.green)
+                    .font(.title3.weight(.bold)).foregroundStyle(.green)
             }
         case .skins:
             Text(vm.skinsState.pillText)
-                .font(.headline.weight(.bold)).foregroundStyle(.green)
+                .font(.title3.weight(.bold)).foregroundStyle(.green)
         case .strokePlay:
             let spLeaders = vm.strokePlayState.leaderboard.filter { $0.rank == 1 }
             if let spLeader = spLeaders.first {
                 let vsParStr = spLeader.vsPar == 0 ? "E" : (spLeader.vsPar > 0 ? "+\(spLeader.vsPar)" : "\(spLeader.vsPar)")
                 if spLeaders.count == 1 {
                     Text("\(vm.playerName(for: spLeader.playerID)) \(vsParStr)")
-                        .font(.headline.weight(.bold)).foregroundStyle(.teal)
+                        .font(.title3.weight(.bold)).foregroundStyle(.teal)
                 } else {
                     Text("T1 · \(vsParStr)")
-                        .font(.headline.weight(.bold)).foregroundStyle(.teal)
+                        .font(.title3.weight(.bold)).foregroundStyle(.teal)
                 }
             }
         }
@@ -763,7 +807,7 @@ private struct SaturdayScoringContent: View {
                                     Text("\(bucket.1)")
                                         .font(.caption.weight(.semibold)).foregroundStyle(.primary)
                                     Spacer()
-                                    Text(teamInitials(bucket.2))
+                                    Text(scotchBucketWinnerText(bucketLabel: bucket.0, side: bucket.2, last: last))
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(bucket.2 == .teamA ? Color.blue : Color.orange)
                                 }
@@ -831,16 +875,53 @@ private struct SaturdayScoringContent: View {
         }
     }
 
+    private func scotchBucketWinnerText(bucketLabel: String, side: TeamSide, last: SixPointScotchHoleOutput) -> String {
+        if bucketLabel.localizedCaseInsensitiveContains("Low Man"),
+           let name = lowManWinnerName(for: last) {
+            return name
+        }
+        if bucketLabel.localizedCaseInsensitiveContains("Prox"),
+           let name = proxWinnerName(for: last) {
+            return name
+        }
+        return teamInitials(side)
+    }
+
+    private func lowManWinnerName(for last: SixPointScotchHoleOutput) -> String? {
+        guard let stub = vm.round.holes.first(where: { $0.number == last.holeNumber }),
+              let entry = vm.round.holeEntries.first(where: { $0.holeNumber == last.holeNumber }) else {
+            return nil
+        }
+
+        let scored: [(player: PlayerSnapshot, net: Int)] = vm.round.players.compactMap { player in
+            guard let gross = entry.grossByPlayerID[player.id] else { return nil }
+            let net = gross - vm.handicapStrokes(for: player, on: stub)
+            return (player: player, net: net)
+        }
+        guard let bestNet = scored.map(\.net).min() else { return nil }
+        let winners = scored.filter { $0.net == bestNet }
+        guard winners.count == 1 else { return nil }
+        return firstName(winners[0].player.name)
+    }
+
+    private func proxWinnerName(for last: SixPointScotchHoleOutput) -> String? {
+        guard let entry = vm.round.holeEntries.first(where: { $0.holeNumber == last.holeNumber }) else {
+            return nil
+        }
+        let proxIDs = Array(entry.scotchFlags.proxFeetByPlayerID.keys)
+        guard proxIDs.count == 1, let proxID = proxIDs.first,
+              let player = vm.round.players.first(where: { $0.id == proxID }) else {
+            return nil
+        }
+        return firstName(player.name)
+    }
+
     // MARK: - Stableford Standings
 
     @ViewBuilder
     private var stablefordStandings: some View {
         let isStablefordActive = vm.round.activeGames.contains(where: { $0.type == .stableford })
         if isStablefordActive, !vm.round.holeEntries.isEmpty {
-            let sorted = vm.round.players.sorted {
-                (vm.stablefordState.pointsByPlayerID[$0.id] ?? 0) >
-                (vm.stablefordState.pointsByPlayerID[$1.id] ?? 0)
-            }
             VStack(spacing: 0) {
                 HStack {
                     Text("Stableford")
@@ -855,26 +936,67 @@ private struct SaturdayScoringContent: View {
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .background(Color.purple.opacity(0.06))
 
-                ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, player in
-                    if idx > 0 { Divider().padding(.leading, 44) }
-                    HStack(spacing: 10) {
-                        Text("\(idx + 1)")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(idx == 0 ? .purple : .secondary)
-                            .frame(width: 18, alignment: .center)
-                        Text(player.name)
-                            .font(.subheadline)
-                            .fontWeight(idx == 0 ? .semibold : .regular)
-                        Spacer()
-                        Text("\(vm.stablefordState.pointsByPlayerID[player.id] ?? 0)")
-                            .font(.subheadline.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(idx == 0 ? .purple : .primary)
-                        Text("pts")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                if vm.stablefordState.format == .team2v2 {
+                    let a = vm.stablefordState.teamPointsBySide[.teamA, default: 0]
+                    let b = vm.stablefordState.teamPointsBySide[.teamB, default: 0]
+                    let teamRows: [(TeamSide, Int, Color)] = [(.teamA, a, .blue), (.teamB, b, .orange)]
+                    let sortedRows = teamRows.sorted { $0.1 > $1.1 }
+
+                    ForEach(Array(sortedRows.enumerated()), id: \.offset) { idx, row in
+                        if idx > 0 { Divider().padding(.leading, 44) }
+                        let teamNames = row.0 == .teamA ? vm.round.teamAPlayers.map(\.name) : vm.round.teamBPlayers.map(\.name)
+                        HStack(spacing: 10) {
+                            Text("\(idx + 1)")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(idx == 0 ? .purple : .secondary)
+                                .frame(width: 18, alignment: .center)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(teamInitials(row.0))
+                                    .font(.subheadline)
+                                    .fontWeight(idx == 0 ? .semibold : .regular)
+                                    .foregroundStyle(row.2)
+                                Text(teamNames.joined(separator: ", "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Text("\(row.1)")
+                                .font(.subheadline.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(idx == 0 ? .purple : .primary)
+                            Text("pts")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 10)
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
+                } else {
+                    let sorted = vm.round.players.sorted {
+                        (vm.stablefordState.pointsByPlayerID[$0.id] ?? 0) >
+                        (vm.stablefordState.pointsByPlayerID[$1.id] ?? 0)
+                    }
+                    ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, player in
+                        if idx > 0 { Divider().padding(.leading, 44) }
+                        HStack(spacing: 10) {
+                            Text("\(idx + 1)")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(idx == 0 ? .purple : .secondary)
+                                .frame(width: 18, alignment: .center)
+                            Text(player.name)
+                                .font(.subheadline)
+                                .fontWeight(idx == 0 ? .semibold : .regular)
+                            Spacer()
+                            Text("\(vm.stablefordState.pointsByPlayerID[player.id] ?? 0)")
+                                .font(.subheadline.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(idx == 0 ? .purple : .primary)
+                            Text("pts")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                    }
                 }
             }
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
@@ -1000,6 +1122,12 @@ private struct SaturdayScoringContent: View {
                 .buttonStyle(.bordered)
                 .tint(.orange)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var endRoundButton: some View {
+        VStack(spacing: 10) {
 #if DEBUG
             if !vm.isComplete {
                 Button {
@@ -1012,21 +1140,17 @@ private struct SaturdayScoringContent: View {
                 .tint(.purple)
             }
 #endif
-        }
-    }
-
-    @ViewBuilder
-    private var endRoundButton: some View {
-        if !vm.isComplete {
-            Button {
-                showEndRoundAlert = true
-            } label: {
-                Label("End Round Early", systemImage: "flag.checkered")
-                    .frame(maxWidth: .infinity)
+            if !vm.isComplete {
+                Button {
+                    showEndRoundAlert = true
+                } label: {
+                    Label("End Round Early", systemImage: "flag.checkered")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .padding(.top, 4)
             }
-            .buttonStyle(.bordered)
-            .tint(.red)
-            .padding(.top, 4)
         }
     }
 
@@ -1051,6 +1175,102 @@ private struct SaturdayScoringContent: View {
             .padding(.vertical, 12)
         }
         .background(Color(.secondarySystemBackground))
+    }
+}
+
+private struct GameRulesSheet: View {
+    let game: SaturdayGameConfig
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(rules(for: game), id: \.self) { rule in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("•")
+                                .foregroundStyle(.secondary)
+                            Text(rule)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("\(game.type.title) Rules")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func rules(for game: SaturdayGameConfig) -> [String] {
+        switch game.type {
+        case .sixPointScotch:
+            return [
+                "Per-hole buckets: Low Man 2, Low Team 2, Birdie 1, Prox 1.",
+                "Low Man and Low Team require a single winner. Ties pay 0.",
+                "Birdie is natural only. If both teams birdie, that bucket pushes.",
+                "Prox awards one winner only and requires natural GIR eligibility.",
+                "Umbrella pays 12 raw points when one team sweeps all buckets.",
+                "Press, roll, and re-roll adjust the per-hole multiplier."
+            ]
+        case .nassau:
+            return [
+                "Three bets run at once: Front, Back, and Overall.",
+                "Each segment is match play (net scores).",
+                "Auto press can trigger when a side goes a set number down.",
+                "Manual presses are allowed for the trailing side."
+            ]
+        case .stableford:
+            let mode = game.stablefordConfig?.format == .team2v2 ? "Team 2v2" : "Individual"
+            let scoring = game.stablefordConfig?.scoringType == .modified ? "Modified" : "Standard"
+            return [
+                "Current mode: \(mode).",
+                "Current scoring table: \(scoring).",
+                "Standard table: Eagle=4, Birdie=3, Par=2, Bogey=1, Double or worse=0.",
+                "Modified table (if selected): Eagle=5, Birdie=2, Par=0, Bogey=-1, Double=-3.",
+                "Higher total points wins."
+            ]
+        case .skins:
+            let mode: String
+            switch game.skinsConfig?.mode {
+            case .gross: mode = "Gross"
+            case .net: mode = "Net"
+            case .both: mode = "Both"
+            case .none: mode = "Gross"
+            }
+            let carry = game.skinsConfig?.carryoverEnabled == true
+                ? "Carryover is ON (ties roll to next hole)."
+                : "Carryover is OFF (ties void the skin)."
+            return [
+                "Current mode: \(mode).",
+                "Gross: lowest raw score on the hole wins the skin.",
+                "Net: lowest handicap-adjusted score on the hole wins the skin.",
+                "Both: gross and net skins are tracked side-by-side.",
+                carry,
+                "A skin is won by the unique lowest score on a hole.",
+                "Most skins at round end wins."
+            ]
+        case .strokePlay:
+            let format: String
+            switch game.strokePlayConfig?.format {
+            case .individual: format = "Individual"
+            case .bestBall2v2: format = "2v2 Best Ball"
+            case .teamBestBall: format = "Team Best Ball"
+            case .none: format = "Individual"
+            }
+            return [
+                "Current format: \(format).",
+                "Scores track gross and net performance.",
+                "Best-ball formats use the best score on each hole for the side/team."
+            ]
+        }
     }
 }
 
@@ -1510,23 +1730,48 @@ private struct GameStripPill: View {
                 }
             }
         case .stableford:
-            let sorted = vm.round.players.sorted {
-                (vm.stablefordState.pointsByPlayerID[$0.id] ?? 0) >
-                (vm.stablefordState.pointsByPlayerID[$1.id] ?? 0)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, player in
-                    HStack(spacing: 6) {
-                        Text("\(idx + 1)")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(idx == 0 ? .purple : .secondary)
-                            .frame(width: 14)
-                        Text(player.name).font(.caption)
-                            .fontWeight(idx == 0 ? .semibold : .regular)
-                        Spacer()
-                        Text("\(vm.stablefordState.pointsByPlayerID[player.id] ?? 0) pts")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(idx == 0 ? .purple : .primary)
+            if vm.stablefordState.format == .team2v2 {
+                let a = vm.stablefordState.teamPointsBySide[.teamA, default: 0]
+                let b = vm.stablefordState.teamPointsBySide[.teamB, default: 0]
+                let teamRows: [(TeamSide, Int, Color)] = [(.teamA, a, .blue), (.teamB, b, .orange)]
+                let sortedRows = teamRows.sorted { $0.1 > $1.1 }
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(sortedRows.enumerated()), id: \.offset) { idx, row in
+                        HStack(spacing: 6) {
+                            Text("\(idx + 1)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(idx == 0 ? .purple : .secondary)
+                                .frame(width: 14)
+                            Text(teamInitials(row.0))
+                                .font(.caption)
+                                .fontWeight(idx == 0 ? .semibold : .regular)
+                                .foregroundStyle(row.2)
+                            Spacer()
+                            Text("\(row.1) pts")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(idx == 0 ? .purple : .primary)
+                        }
+                    }
+                }
+            } else {
+                let sorted = vm.round.players.sorted {
+                    (vm.stablefordState.pointsByPlayerID[$0.id] ?? 0) >
+                    (vm.stablefordState.pointsByPlayerID[$1.id] ?? 0)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(sorted.enumerated()), id: \.element.id) { idx, player in
+                        HStack(spacing: 6) {
+                            Text("\(idx + 1)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(idx == 0 ? .purple : .secondary)
+                                .frame(width: 14)
+                            Text(player.name).font(.caption)
+                                .fontWeight(idx == 0 ? .semibold : .regular)
+                            Spacer()
+                            Text("\(vm.stablefordState.pointsByPlayerID[player.id] ?? 0) pts")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(idx == 0 ? .purple : .primary)
+                        }
                     }
                 }
             }

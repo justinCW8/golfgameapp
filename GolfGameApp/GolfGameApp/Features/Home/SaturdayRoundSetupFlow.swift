@@ -47,12 +47,14 @@ final class SaturdaySetupViewModel: ObservableObject {
 
     // Nassau fourball requires exactly 4 players
     var nassauFourballEligible: Bool { playerCount == 4 }
+    var stablefordTeamEligible: Bool { playerCount == 4 }
 
     var requiresTeamScreen: Bool {
         guard playerCount == 4 else { return false }
         let hasScotch = selectedGames.contains(.sixPointScotch)
         let hasFourballNassau = selectedGames.contains(.nassau) && nassauConfig.format == .fourball
-        return hasScotch || hasFourballNassau
+        let hasTeamStableford = selectedGames.contains(.stableford) && stablefordConfig.format == .team2v2
+        return hasScotch || hasFourballNassau || hasTeamStableford
     }
 
     var autoPairings: [TeamPairing] {
@@ -113,7 +115,12 @@ final class SaturdaySetupViewModel: ObservableObject {
             switch type {
             case .nassau: return .nassau(nassauConfig)
             case .sixPointScotch: return .scotch(scotchConfig)
-            case .stableford: return .stableford(stablefordConfig)
+            case .stableford:
+                var config = stablefordConfig
+                if !stablefordTeamEligible, config.format == .team2v2 {
+                    config.format = .individual
+                }
+                return .stableford(config)
             case .skins: return .skins(skinsConfig)
             case .strokePlay: 
                 var config = strokePlayConfig
@@ -249,6 +256,11 @@ private struct SetupScreen1_Players: View {
                     vm.playerDrafts[idx].handicapIndex = buddy.handicapIndex
                 }
                 if nextEmptyIndex == nil { showBuddies = false }
+            }
+        }
+        .onChange(of: vm.playerCount) { _, count in
+            if count < 4, vm.stablefordConfig.format == .team2v2 {
+                vm.stablefordConfig.format = .individual
             }
         }
     }
@@ -809,7 +821,7 @@ private struct GameSelectCard: View {
         switch game {
         case .nassau: return "Front · Back · Overall match play"
         case .sixPointScotch: return "Points per hole · 2v2 teams required"
-        case .stableford: return "Individual points scoring"
+        case .stableford: return "Points scoring · individual or team 2v2"
         case .skins: return "Hole-by-hole individual skins"
         case .strokePlay: return "Gross & net leaderboard"
         }
@@ -911,6 +923,7 @@ private struct SetupScreen4_Settings: View {
     @ObservedObject var vm: SaturdaySetupViewModel
     @Binding var path: [SaturdayRoute]
     @EnvironmentObject private var store: AppSessionStore
+    @State private var rulesGame: SaturdayGameConfig?
 
     var body: some View {
         Form {
@@ -944,7 +957,9 @@ private struct SetupScreen4_Settings: View {
                         )
                     }
                 } header: {
-                    Text("Nassau")
+                    sectionHeader(title: "Nassau") {
+                        rulesGame = .nassau(vm.nassauConfig)
+                    }
                 } footer: {
                     Text("Stake = amount per bet. Nassau has 3 bets: front, back, overall.")
                         .font(.caption)
@@ -963,7 +978,9 @@ private struct SetupScreen4_Settings: View {
                             .frame(width: 70)
                     }
                 } header: {
-                    Text("Six Point Scotch")
+                    sectionHeader(title: "Six Point Scotch") {
+                        rulesGame = .scotch(vm.scotchConfig)
+                    }
                 } footer: {
                     Text("Points per hole × multiplier. Umbrella sweep = 12 pts.")
                         .font(.caption)
@@ -978,11 +995,26 @@ private struct SetupScreen4_Settings: View {
                         Text("Modified").tag(StablefordGameConfig.ScoringType.modified)
                     }
                     .pickerStyle(.segmented)
+
+                    Picker("Mode", selection: $vm.stablefordConfig.format) {
+                        Text("Individual").tag(StablefordGameConfig.Format.individual)
+                        Text("Team 2v2").tag(StablefordGameConfig.Format.team2v2)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(!vm.stablefordTeamEligible)
                 } header: {
-                    Text("Stableford")
+                    sectionHeader(title: "Stableford") {
+                        rulesGame = .stableford(vm.stablefordConfig)
+                    }
                 } footer: {
-                    Text("Standard: Eagle=4, Birdie=3, Par=2, Bogey=1, Double+=0")
-                        .font(.caption)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Standard: Eagle=4, Birdie=3, Par=2, Bogey=1, Double+=0")
+                        if !vm.stablefordTeamEligible {
+                            Text("Team 2v2 requires 4 players.")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .font(.caption)
                 }
             }
             
@@ -1000,7 +1032,9 @@ private struct SetupScreen4_Settings: View {
 
                     StakeRow(label: "$ per Skin", value: $vm.skinsConfig.skinValue)
                 } header: {
-                    Text("Skins")
+                    sectionHeader(title: "Skins") {
+                        rulesGame = .skins(vm.skinsConfig)
+                    }
                 } footer: {
                     Text(vm.skinsConfig.carryoverEnabled
                         ? "Tied holes carry the skin to the next hole."
@@ -1042,7 +1076,9 @@ private struct SetupScreen4_Settings: View {
                         }
                     }
                 } header: {
-                    Text("Stroke Play")
+                    sectionHeader(title: "Stroke Play") {
+                        rulesGame = .strokePlay(vm.strokePlayConfig)
+                    }
                 } footer: {
                     if vm.strokePlayConfig.format == .individual {
                         Text("Individual leaderboard tracking gross and net scores.")
@@ -1074,6 +1110,116 @@ private struct SetupScreen4_Settings: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(.init(top: 8, leading: 0, bottom: 8, trailing: 0))
             }
+        }
+        .sheet(item: $rulesGame) { game in
+            SetupGameRulesSheet(game: game)
+        }
+    }
+
+    @ViewBuilder
+    private func sectionHeader(title: String, onRulesTap: @escaping () -> Void) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Button("Rules", action: onRulesTap)
+                .font(.caption.weight(.semibold))
+                .textCase(.none)
+        }
+    }
+}
+
+private struct SetupGameRulesSheet: View {
+    let game: SaturdayGameConfig
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(rules(for: game), id: \.self) { rule in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("•")
+                                .foregroundStyle(.secondary)
+                            Text(rule)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("\(game.type.title) Rules")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func rules(for game: SaturdayGameConfig) -> [String] {
+        switch game.type {
+        case .sixPointScotch:
+            return [
+                "Per-hole buckets: Low Man 2, Low Team 2, Birdie 1, Prox 1.",
+                "Low Man and Low Team require a single winner. Ties pay 0.",
+                "Birdie is natural only. If both teams birdie, that bucket pushes.",
+                "Prox awards one winner only and requires natural GIR eligibility.",
+                "Umbrella pays 12 raw points when one team sweeps all buckets.",
+                "Press, roll, and re-roll adjust the per-hole multiplier."
+            ]
+        case .nassau:
+            return [
+                "Three bets run at once: Front, Back, and Overall.",
+                "Each segment is match play (net scores).",
+                "Auto press can trigger when a side goes a set number down.",
+                "Manual presses are allowed for the trailing side."
+            ]
+        case .stableford:
+            let mode = game.stablefordConfig?.format == .team2v2 ? "Team 2v2" : "Individual"
+            let scoring = game.stablefordConfig?.scoringType == .modified ? "Modified" : "Standard"
+            return [
+                "Current mode: \(mode).",
+                "Current scoring table: \(scoring).",
+                "Standard table: Eagle=4, Birdie=3, Par=2, Bogey=1, Double or worse=0.",
+                "Modified table (if selected): Eagle=5, Birdie=2, Par=0, Bogey=-1, Double=-3.",
+                "Higher total points wins."
+            ]
+        case .skins:
+            let mode: String
+            switch game.skinsConfig?.mode {
+            case .gross: mode = "Gross"
+            case .net: mode = "Net"
+            case .both: mode = "Both"
+            case .none: mode = "Gross"
+            }
+            let carry = game.skinsConfig?.carryoverEnabled == true
+                ? "Carryover is ON (ties roll to next hole)."
+                : "Carryover is OFF (ties void the skin)."
+            return [
+                "Current mode: \(mode).",
+                "Gross: lowest raw score on the hole wins the skin.",
+                "Net: lowest handicap-adjusted score on the hole wins the skin.",
+                "Both: gross and net skins are tracked side-by-side.",
+                carry,
+                "A skin is won by the unique lowest score on a hole.",
+                "Most skins at round end wins."
+            ]
+        case .strokePlay:
+            let format: String
+            switch game.strokePlayConfig?.format {
+            case .individual: format = "Individual"
+            case .bestBall2v2: format = "2v2 Best Ball"
+            case .teamBestBall: format = "Team Best Ball"
+            case .none: format = "Individual"
+            }
+            return [
+                "Current format: \(format).",
+                "Scores track gross and net performance.",
+                "Best-ball formats use the best score on each hole for the side/team."
+            ]
         }
     }
 }

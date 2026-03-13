@@ -212,6 +212,89 @@ struct SixPointScotchRunningTotalsTests {
     }
 }
 
+// MARK: - Low Man Tie Rules
+
+struct SixPointScotchLowManTieTests {
+
+    @Test func lowManTieAcrossTeamsAwardsNoLowManPoints() throws {
+        var engine = SixPointScotchEngine()
+        // Low net ties at 4 (A1 and B1) -> no low-man points.
+        // Team A still wins low-team 2 points (4+5 vs 4+6).
+        let out = try engine.scoreHole(scotchInput(
+            hole: 1, par: 4,
+            aNet: [4, 5], bNet: [4, 6],
+            aGross: [4, 5], bGross: [4, 6]
+        ))
+        #expect(out.rawTeamAPoints == 2)
+        #expect(out.rawTeamBPoints == 0)
+        let lowManEntry = out.auditLog.first(where: { $0.hasPrefix("Low Man:") })
+        #expect(lowManEntry == nil)
+    }
+
+    @Test func lowManTieWithinSameTeamAwardsNoLowManPoints() throws {
+        var engine = SixPointScotchEngine()
+        // Team A players tie for lowest net at 4 -> no low-man points.
+        // Team A still wins low-team 2 points (4+4 vs 5+6).
+        let out = try engine.scoreHole(scotchInput(
+            hole: 1, par: 4,
+            aNet: [4, 4], bNet: [5, 6],
+            aGross: [4, 4], bGross: [5, 6]
+        ))
+        #expect(out.rawTeamAPoints == 2)
+        #expect(out.rawTeamBPoints == 0)
+        let lowManEntry = out.auditLog.first(where: { $0.hasPrefix("Low Man:") })
+        #expect(lowManEntry == nil)
+    }
+}
+
+// MARK: - Bucket Tie Rules
+
+struct SixPointScotchBucketRuleTests {
+
+    @Test func lowTeamTieAwardsNoLowTeamPoints() throws {
+        var engine = SixPointScotchEngine()
+        // Team totals tie (4+5 vs 3+6 -> 9/9), so no low-team points.
+        // Team B has unique low man (3), so B gets only 2.
+        let out = try engine.scoreHole(scotchInput(
+            hole: 1, par: 4,
+            aNet: [4, 5], bNet: [3, 6],
+            aGross: [4, 5], bGross: [3, 6]
+        ))
+        #expect(out.rawTeamAPoints == 0)
+        #expect(out.rawTeamBPoints == 2)
+        let lowTeamEntry = out.auditLog.first(where: { $0.hasPrefix("Low Team:") })
+        #expect(lowTeamEntry == nil)
+    }
+
+    @Test func proxTieAwardsNoProxPoints() throws {
+        var engine = SixPointScotchEngine()
+        // Both teams GIR-eligible and exact same prox distance -> no prox point.
+        let out = try engine.scoreHole(scotchInput(
+            hole: 1, par: 3,
+            aNet: [3, 4], bNet: [4, 5],
+            aGross: [3, 4], bGross: [4, 5],
+            aProx: 6.0, bProx: 6.0
+        ))
+        let proxEntry = out.auditLog.first(where: { $0.hasPrefix("Prox:") })
+        #expect(proxEntry == nil)
+    }
+
+    @Test func naturalBirdiePushWhenBothTeamsHaveBirdie() throws {
+        var engine = SixPointScotchEngine()
+        // Both teams make natural birdie (3 on par 4): birdie bucket pushes (0 points).
+        // Low man ties at 3, low team ties at 7 -> no low-man/low-team points.
+        let out = try engine.scoreHole(scotchInput(
+            hole: 1, par: 4,
+            aNet: [3, 4], bNet: [3, 4],
+            aGross: [3, 4], bGross: [3, 4]
+        ))
+        #expect(out.rawTeamAPoints == 0)
+        #expect(out.rawTeamBPoints == 0)
+        let birdieEntry = out.auditLog.first(where: { $0.hasPrefix("Birdie:") })
+        #expect(birdieEntry == nil)
+    }
+}
+
 // MARK: - Back Nine Press Independence
 
 struct SixPointScotchBackNineTests {
