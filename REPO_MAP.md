@@ -2,6 +2,13 @@
 
 Use this as the fast navigation index instead of scanning the whole repo.
 
+## Fast Context (Read First)
+- `docs/codex_handoff_latest.md`
+- `docs/game_rules_source_of_truth.md`
+- `docs/schema_reference.md`
+- `docs/testing_matrix.md`
+- `docs/release_testflight_checklist.md`
+
 ## Core Game Logic
 `GolfGameApp/GolfGameApp/Core/Services/`
 

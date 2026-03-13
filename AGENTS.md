@@ -11,6 +11,15 @@ Run commands from repository root (`golfgameapp/`) unless noted.
 - UI tests: `GolfGameApp/GolfGameAppUITests/`
 - Fast nav index: `REPO_MAP.md`
 
+## Fast Context Load Order (Token-Optimized)
+Read these first before opening broad files:
+1. `docs/codex_handoff_latest.md`
+2. `docs/game_rules_source_of_truth.md`
+3. `docs/schema_reference.md`
+4. `docs/testing_matrix.md`
+5. `docs/release_testflight_checklist.md`
+6. `REPO_MAP.md`
+
 ## Build, Lint, and Test Commands
 
 ### Open in Xcode
