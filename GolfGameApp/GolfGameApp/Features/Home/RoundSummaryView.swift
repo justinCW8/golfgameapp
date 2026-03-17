@@ -366,7 +366,7 @@ struct ScotchSummaryView: View {
                         .font(.title2.weight(.bold)).foregroundStyle(.green)
                     Text("wins \(abs(diff)) points")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    Text("\(loser) owes $\(String(format: "%.0f", amount))")
+                    Text("\(loser) owes $\(formattedCurrencyAmount(amount))")
                         .font(.headline)
                 } else {
                     Text("Tied").font(.title2.weight(.bold)).foregroundStyle(.secondary)
@@ -389,7 +389,7 @@ struct ScotchSummaryView: View {
 
             // Per-point value
             if config.pointValue > 0 {
-                Text("$\(String(format: "%.0f", config.pointValue)) per point")
+                Text("$\(formattedCurrencyAmount(config.pointValue)) per point")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -996,7 +996,7 @@ enum RoundTextMessageComposer {
         let winner = diff > 0 ? teamAName : teamBName
         let loser = diff > 0 ? teamBName : teamAName
         let amount = abs(Double(diff)) * config.pointValue
-        return "- Six Point Scotch: \(winner) +\(abs(diff)) pts. \(loser) owes $\(Int(amount.rounded()))."
+        return "- Six Point Scotch: \(winner) +\(abs(diff)) pts. \(loser) owes $\(formattedCurrencyAmount(amount))."
     }
 
     private static func stablefordSummary(round: SaturdayRound) -> String {

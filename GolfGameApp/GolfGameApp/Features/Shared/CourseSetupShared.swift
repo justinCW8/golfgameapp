@@ -9,8 +9,21 @@ import PhotosUI
 
 enum CourseReviewLayout {
     static let holeColumnWidth: CGFloat = 34
+    static let yardageColumnWidth: CGFloat = 72
     static let controlColumnWidth: CGFloat = 126
     static let rowSpacing: CGFloat = 12
+}
+
+enum CourseTeePickerLayout {
+    static let segmentedThreshold = 4
+}
+
+func formattedCurrencyAmount(_ amount: Double) -> String {
+    let roundedToCents = (amount * 100).rounded() / 100
+    if roundedToCents == roundedToCents.rounded() {
+        return String(format: "%.0f", roundedToCents)
+    }
+    return String(format: "%.2f", roundedToCents)
 }
 
 // MARK: - ScanViewModel
@@ -43,7 +56,8 @@ final class ScanViewModel: ObservableObject {
     private let parser = ScorecardParser()
     private let courseSearch = CourseSearchService()
 
-    static let teeOptions = ["Blue", "White", "Gold", "Red"]
+    private static let fallbackTeeOptions = ["Blue", "White", "Gold", "Red"]
+    private static let teePreferenceOrder = ["Black", "Purple", "Orange", "Blue", "White +", "White", "Gold", "Teal", "Silver", "Green", "Red"]
 
     var isValid: Bool {
         let allFilled = scannedData.holes.allSatisfy { $0.par != nil && $0.strokeIndex != nil }
@@ -62,6 +76,14 @@ final class ScanViewModel: ObservableObject {
 
     var slope: Int? { Int(slopeText) }
     var courseRating: Double? { Double(ratingText) }
+    var totalYardage: Int {
+        scannedData.holes.compactMap(\.yardage).reduce(0, +)
+    }
+    var availableTeeOptions: [String] {
+        let teeKeys = Array(scannedData.teeRatings.keys)
+        guard !teeKeys.isEmpty else { return Self.fallbackTeeOptions }
+        return Self.sortedTeeOptions(teeKeys)
+    }
 
     func processImage(_ image: UIImage) async {
         apiHolesByTee = [:]
@@ -139,8 +161,7 @@ final class ScanViewModel: ObservableObject {
     func applyAPIResult(_ result: CourseAPIResult) {
         apiHolesByTee = result.holesByTee
         courseName = result.displayName
-        let preferredTees = ["Blue", "White", "Gold", "Red"]
-        let defaultTee = preferredTees.first { result.teeRatings[$0] != nil }
+        let defaultTee = Self.sortedTeeOptions(Array(result.teeRatings.keys)).first
             ?? result.teeRatings.keys.sorted().first
             ?? "White"
         teeColor = defaultTee
@@ -165,6 +186,15 @@ final class ScanViewModel: ObservableObject {
         } else {
             slopeText = data.slope.map { String($0) } ?? ""
             ratingText = data.courseRating.map { String(format: "%.1f", $0) } ?? ""
+        }
+    }
+
+    private static func sortedTeeOptions(_ teeKeys: [String]) -> [String] {
+        teeKeys.sorted { lhs, rhs in
+            let lIndex = teePreferenceOrder.firstIndex(of: lhs) ?? .max
+            let rIndex = teePreferenceOrder.firstIndex(of: rhs) ?? .max
+            if lIndex != rIndex { return lIndex < rIndex }
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
         }
     }
 
@@ -230,6 +260,39 @@ struct ImagePicker: UIViewControllerRepresentable {
     }
 }
 
+struct TeeSelectionField: View {
+    @Binding var selectedTee: String
+    let options: [String]
+
+    var body: some View {
+        if options.count <= CourseTeePickerLayout.segmentedThreshold {
+            Picker("Tee", selection: $selectedTee) {
+                ForEach(options, id: \.self) { Text($0).tag($0) }
+            }
+            .pickerStyle(.segmented)
+        } else {
+            Menu {
+                Picker("Tee", selection: $selectedTee) {
+                    ForEach(options, id: \.self) { tee in
+                        Text(tee).tag(tee)
+                    }
+                }
+            } label: {
+                HStack {
+                    Text("Tee")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(selectedTee)
+                        .foregroundStyle(.primary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - HoleReviewRow
 
 struct HoleReviewRow: View {
@@ -243,6 +306,10 @@ struct HoleReviewRow: View {
             Text("\(hole.number)")
                 .frame(width: CourseReviewLayout.holeColumnWidth, alignment: .center)
                 .foregroundStyle(.secondary)
+
+            Text(hole.yardage.map { "\($0)" } ?? "—")
+                .frame(width: CourseReviewLayout.yardageColumnWidth, alignment: .center)
+                .foregroundStyle(hole.yardage == nil ? .secondary : .primary)
 
             Stepper(value: Binding(
                 get: { hole.par ?? 4 },

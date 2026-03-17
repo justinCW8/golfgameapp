@@ -475,10 +475,7 @@ private struct SaturdayCourseSetupScreen: View {
         Form {
             Section("Course Info") {
                 TextField("Course Name", text: $scanVM.courseName)
-                Picker("Tee", selection: $scanVM.teeColor) {
-                    ForEach(ScanViewModel.teeOptions, id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                TeeSelectionField(selectedTee: $scanVM.teeColor, options: scanVM.availableTeeOptions)
                 HStack {
                     Text("Slope").foregroundStyle(.secondary)
                     TextField("—", text: $scanVM.slopeText)
@@ -489,11 +486,18 @@ private struct SaturdayCourseSetupScreen: View {
                     TextField("—", text: $scanVM.ratingText)
                         .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                 }
+                HStack {
+                    Text("Yardage").foregroundStyle(.secondary)
+                    Text(scanVM.totalYardage > 0 ? "\(scanVM.totalYardage)" : "—")
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             Section {
                 HStack {
                     Text("Hole").frame(width: CourseReviewLayout.holeColumnWidth, alignment: .center)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Yardage").frame(width: CourseReviewLayout.yardageColumnWidth, alignment: .center)
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Text("Par").frame(width: CourseReviewLayout.controlColumnWidth, alignment: .center)
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -972,7 +976,7 @@ private struct SetupScreen4_Settings: View {
                     HStack {
                         Text("$ per Point")
                         Spacer()
-                        TextField("1", value: $vm.scotchConfig.pointValue, format: .number.precision(.fractionLength(0)))
+                        TextField("1", value: $vm.scotchConfig.pointValue, format: .number.precision(.fractionLength(0...2)))
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 70)
