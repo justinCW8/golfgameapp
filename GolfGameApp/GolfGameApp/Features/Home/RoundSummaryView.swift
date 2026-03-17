@@ -21,7 +21,10 @@ struct RoundSummaryView: View {
     private var messageData: RoundTextMessageData {
         RoundTextMessageData(
             recipients: buddyStore.phoneNumbers(forPlayers: round.players.map(\.name)),
-            body: RoundTextMessageComposer.messageBody(for: round)
+            body: RoundTextMessageComposer.messageBody(for: round),
+            attachmentData: RoundMessageSnapshotRenderer.pngData(for: round),
+            attachmentUTI: "public.png",
+            attachmentFilename: "golf-round-summary.png"
         )
     }
 
@@ -101,7 +104,10 @@ struct RoundSummaryView: View {
         .sheet(isPresented: $showingMessageComposer) {
             RoundMessageComposeView(
                 recipients: messageData.recipients,
-                body: messageData.body
+                body: messageData.body,
+                attachmentData: messageData.attachmentData,
+                attachmentUTI: messageData.attachmentUTI,
+                attachmentFilename: messageData.attachmentFilename
             )
         }
         .alert("Send Scorecard + Settlement?", isPresented: $showSendConfirmAlert) {
@@ -800,11 +806,17 @@ struct StablefordSummaryView: View {
 struct RoundTextMessageData {
     var recipients: [String]
     var body: String
+    var attachmentData: Data?
+    var attachmentUTI: String?
+    var attachmentFilename: String?
 }
 
 struct RoundMessageComposeView: UIViewControllerRepresentable {
     let recipients: [String]
     let body: String
+    let attachmentData: Data?
+    let attachmentUTI: String?
+    let attachmentFilename: String?
 
     final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
         var parent: RoundMessageComposeView
@@ -830,6 +842,9 @@ struct RoundMessageComposeView: UIViewControllerRepresentable {
         vc.messageComposeDelegate = context.coordinator
         vc.recipients = recipients.isEmpty ? nil : recipients
         vc.body = body
+        if let attachmentData, let attachmentUTI, let attachmentFilename {
+            vc.addAttachmentData(attachmentData, typeIdentifier: attachmentUTI, filename: attachmentFilename)
+        }
         return vc
     }
 
@@ -852,7 +867,7 @@ enum RoundTextMessageComposer {
         return lines.joined(separator: "\n")
     }
 
-    private static func scorecardLines(for round: SaturdayRound) -> [String] {
+    static func scorecardLines(for round: SaturdayRound) -> [String] {
         let entries = round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
         let holesPlayed = entries.count
         return round.players.map { player in
@@ -869,7 +884,7 @@ enum RoundTextMessageComposer {
         }
     }
 
-    private static func settlementLines(for round: SaturdayRound) -> [String] {
+    static func settlementLines(for round: SaturdayRound) -> [String] {
         var lines: [String] = []
         for game in round.activeGames {
             switch game.type {
@@ -1013,10 +1028,19 @@ enum RoundTextMessageComposer {
                 totals[player.id, default: 0] += output.points
             }
         }
-        guard let winner = round.players.max(by: { totals[$0.id, default: 0] < totals[$1.id, default: 0] }) else {
+        let rankedPlayers = round.players.sorted { lhs, rhs in
+            let lhsPoints = totals[lhs.id, default: 0]
+            let rhsPoints = totals[rhs.id, default: 0]
+            if lhsPoints != rhsPoints { return lhsPoints > rhsPoints }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        guard let winner = rankedPlayers.first else {
             return "- Stableford: No result."
         }
-        return "- Stableford: \(winner.name) won with \(totals[winner.id, default: 0]) points."
+        let standings = rankedPlayers
+            .map { "\($0.name) \(totals[$0.id, default: 0])" }
+            .joined(separator: ", ")
+        return "- Stableford: \(winner.name) won with \(totals[winner.id, default: 0]) points. Standings: \(standings)."
     }
 
     private static func skinsSummary(round: SaturdayRound, config: SkinsGameConfig) -> String {
@@ -1101,5 +1125,198 @@ enum RoundTextMessageComposer {
         case .net: return net[playerID] ?? 0
         case .both: return (gross[playerID] ?? 0) + (net[playerID] ?? 0)
         }
+    }
+}
+
+enum RoundMessageSnapshotRenderer {
+    @MainActor
+    static func pngData(for round: SaturdayRound) -> Data? {
+        let renderer = ImageRenderer(content: RoundMessageSnapshotView(round: round))
+        renderer.scale = UIScreen.main.scale
+        return renderer.uiImage?.pngData()
+    }
+}
+
+private struct RoundMessageSnapshotView: View {
+    let round: SaturdayRound
+
+    private var entries: [SaturdayHoleEntry] {
+        round.holeEntries.sorted { $0.holeNumber < $1.holeNumber }
+    }
+
+    private func firstName(_ name: String) -> String {
+        String(name.split(separator: " ").first ?? Substring(name))
+    }
+
+    private func netScore(for player: PlayerSnapshot, on stub: CourseHoleStub?, holeNumber: Int, gross: Int) -> Int {
+        let si = stub?.strokeIndex ?? holeNumber
+        let strokes = strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: si)
+        return gross - strokes
+    }
+
+    private func handicapStrokes(for player: PlayerSnapshot, on stub: CourseHoleStub?, holeNumber: Int) -> Int {
+        let si = stub?.strokeIndex ?? holeNumber
+        return strokeCountForHandicapIndex(player.handicapIndex, onHoleStrokeIndex: si)
+    }
+
+    private func strokeMarker(_ count: Int) -> String {
+        if count <= 0 { return "" }
+        if count == 1 { return "•" }
+        if count == 2 { return "••" }
+        return "•x\(count)"
+    }
+
+    private func netColor(_ delta: Int) -> Color {
+        switch delta {
+        case ...(-2): return Color(red: 0.85, green: 0.65, blue: 0.10)
+        case -1: return .green
+        case 0: return .secondary
+        case 1: return .orange
+        default: return .red
+        }
+    }
+
+    private func netTotals(for player: PlayerSnapshot, filter: (SaturdayHoleEntry) -> Bool) -> (gross: Int, net: Int)? {
+        let filtered = entries.filter(filter)
+        let grossValues = filtered.compactMap { $0.grossByPlayerID[player.id] }
+        guard !grossValues.isEmpty else { return nil }
+        let grossTotal = grossValues.reduce(0, +)
+        let netTotal = filtered.compactMap { entry -> Int? in
+            guard let gross = entry.grossByPlayerID[player.id] else { return nil }
+            let stub = round.holes.first(where: { $0.number == entry.holeNumber })
+            return netScore(for: player, on: stub, holeNumber: entry.holeNumber, gross: gross)
+        }.reduce(0, +)
+        return (grossTotal, netTotal)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Text("Scorecard")
+                    .font(.title.weight(.bold))
+                Spacer()
+            }
+            .padding(.top, 24)
+            .padding(.bottom, 20)
+
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Text("H").frame(width: 32, alignment: .center)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Par").frame(width: 36, alignment: .center)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("SI").frame(width: 32, alignment: .center)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(round.players) { player in
+                        Text(firstName(player.name))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(Color(.tertiarySystemGroupedBackground))
+
+                ForEach(entries) { entry in
+                    let stub = round.holes.first(where: { $0.number == entry.holeNumber })
+                    let par = stub?.par ?? 4
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            Text("\(entry.holeNumber)").frame(width: 32, alignment: .center)
+                                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                            Text("\(par)").frame(width: 36, alignment: .center)
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Text("\(stub?.strokeIndex ?? entry.holeNumber)").frame(width: 32, alignment: .center)
+                                .font(.caption2).foregroundStyle(.secondary)
+                            ForEach(round.players) { player in
+                                VStack(spacing: 1) {
+                                    PGAScoreCell(gross: entry.grossByPlayerID[player.id], par: par)
+                                    if let gross = entry.grossByPlayerID[player.id] {
+                                        let net = netScore(for: player, on: stub, holeNumber: entry.holeNumber, gross: gross)
+                                        let strokes = handicapStrokes(for: player, on: stub, holeNumber: entry.holeNumber)
+                                        HStack(spacing: 2) {
+                                            if strokes > 0 {
+                                                Text(strokeMarker(strokes))
+                                                    .font(.system(size: 8).weight(.bold))
+                                                    .foregroundStyle(.blue)
+                                            }
+                                            Text("\(net)")
+                                                .font(.system(size: 9).weight(.medium))
+                                                .foregroundStyle(netColor(net - par))
+                                        }
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 6)
+
+                        if entry.holeNumber == 9 {
+                            nineTotalsRow(label: "Out", parTotal: round.holes.filter { $0.number <= 9 }.map(\.par).reduce(0, +)) { $0.holeNumber <= 9 }
+                        }
+
+                        if entry.holeNumber != entries.last?.holeNumber && entry.holeNumber != 9 {
+                            Divider().padding(.leading, 16)
+                        }
+                    }
+                }
+
+                Divider()
+                nineTotalsRow(label: "In", parTotal: round.holes.filter { $0.number > 9 }.map(\.par).reduce(0, +)) { $0.holeNumber > 9 }
+
+                Divider()
+                HStack(spacing: 0) {
+                    Text("Tot").frame(width: 32, alignment: .center)
+                        .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                    Text("—").frame(width: 36, alignment: .center)
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text("—").frame(width: 32, alignment: .center)
+                        .font(.caption2).foregroundStyle(.secondary)
+                    ForEach(round.players) { player in
+                        if let totals = netTotals(for: player, filter: { _ in true }) {
+                            VStack(spacing: 1) {
+                                Text("\(totals.gross)").font(.caption.weight(.bold))
+                                Text("\(totals.net)").font(.system(size: 9).weight(.medium)).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        } else {
+                            Text("—").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.bold))
+                        }
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(Color(.tertiarySystemGroupedBackground))
+            }
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            .padding(16)
+        }
+        .frame(width: 900, alignment: .top)
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private func nineTotalsRow(label: String, parTotal: Int, filter: @escaping (SaturdayHoleEntry) -> Bool) -> some View {
+        HStack(spacing: 0) {
+            Text(label).frame(width: 32, alignment: .center)
+                .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+            Text("\(parTotal)")
+                .frame(width: 36, alignment: .center)
+                .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+            Text("—").frame(width: 32, alignment: .center)
+                .font(.caption2).foregroundStyle(.secondary)
+            ForEach(round.players) { player in
+                if let totals = netTotals(for: player, filter: filter) {
+                    VStack(spacing: 1) {
+                        Text("\(totals.gross)").font(.caption.weight(.bold))
+                        Text("\(totals.net)").font(.system(size: 9).weight(.medium)).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    Text("—").frame(maxWidth: .infinity, alignment: .center).font(.caption.weight(.bold))
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 6)
+        .background(Color(.tertiarySystemGroupedBackground))
     }
 }
