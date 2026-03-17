@@ -527,10 +527,7 @@ private struct CourseSetupScreen: View {
         Form {
             Section("Course Info") {
                 TextField("Course Name", text: $scanVM.courseName)
-                Picker("Tee", selection: $scanVM.teeColor) {
-                    ForEach(ScanViewModel.teeOptions, id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                TeeSelectionField(selectedTee: $scanVM.teeColor, options: scanVM.availableTeeOptions)
                 HStack {
                     Text("Slope")
                         .foregroundStyle(.secondary)
@@ -545,11 +542,18 @@ private struct CourseSetupScreen: View {
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
+                HStack {
+                    Text("Yardage")
+                        .foregroundStyle(.secondary)
+                    Text(scanVM.totalYardage > 0 ? "\(scanVM.totalYardage)" : "—")
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             Section {
                 HStack {
                     Text("Hole").frame(width: CourseReviewLayout.holeColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Yardage").frame(width: CourseReviewLayout.yardageColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Text("Par").frame(width: CourseReviewLayout.controlColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Text("Stroke Index").frame(width: CourseReviewLayout.controlColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 }

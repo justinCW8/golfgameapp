@@ -540,10 +540,7 @@ private struct NassauCourseScreen: View {
         Form {
             Section("Course Info") {
                 TextField("Course Name", text: $scanVM.courseName)
-                Picker("Tee", selection: $scanVM.teeColor) {
-                    ForEach(NassauScanViewModel.teeOptions, id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                TeeSelectionField(selectedTee: $scanVM.teeColor, options: scanVM.availableTeeOptions)
                 HStack {
                     Text("Slope").foregroundStyle(.secondary)
                     TextField("—", text: $scanVM.slopeText)
@@ -556,11 +553,17 @@ private struct NassauCourseScreen: View {
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
+                HStack {
+                    Text("Yardage").foregroundStyle(.secondary)
+                    Text(scanVM.totalYardage > 0 ? "\(scanVM.totalYardage)" : "—")
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             Section {
                 HStack {
                     Text("Hole").frame(width: CourseReviewLayout.holeColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Yardage").frame(width: CourseReviewLayout.yardageColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Text("Par").frame(width: CourseReviewLayout.controlColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Text("Stroke Index").frame(width: CourseReviewLayout.controlColumnWidth, alignment: .center).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 }
@@ -744,7 +747,8 @@ private final class NassauScanViewModel: ObservableObject {
     private let parser = ScorecardParser()
     private let courseSearch = CourseSearchService()
 
-    static let teeOptions = ["Blue", "White", "Gold", "Red"]
+    private static let fallbackTeeOptions = ["Blue", "White", "Gold", "Red"]
+    private static let teePreferenceOrder = ["Black", "Purple", "Orange", "Blue", "White +", "White", "Gold", "Teal", "Silver", "Green", "Red"]
 
     var isValid: Bool {
         let allFilled = scannedData.holes.allSatisfy { $0.par != nil && $0.strokeIndex != nil }
@@ -763,6 +767,14 @@ private final class NassauScanViewModel: ObservableObject {
 
     var slope: Int? { Int(slopeText) }
     var courseRating: Double? { Double(ratingText) }
+    var totalYardage: Int {
+        scannedData.holes.compactMap(\.yardage).reduce(0, +)
+    }
+    var availableTeeOptions: [String] {
+        let teeKeys = Array(scannedData.teeRatings.keys)
+        guard !teeKeys.isEmpty else { return Self.fallbackTeeOptions }
+        return Self.sortedTeeOptions(teeKeys)
+    }
 
     func processImage(_ image: UIImage) async {
         apiHolesByTee = [:]
@@ -840,8 +852,7 @@ private final class NassauScanViewModel: ObservableObject {
     func applyAPIResult(_ result: CourseAPIResult) {
         apiHolesByTee = result.holesByTee
         courseName = result.displayName
-        let preferredTees = ["Blue", "White", "Gold", "Red"]
-        let defaultTee = preferredTees.first { result.teeRatings[$0] != nil }
+        let defaultTee = Self.sortedTeeOptions(Array(result.teeRatings.keys)).first
             ?? result.teeRatings.keys.sorted().first
             ?? "White"
         teeColor = defaultTee
@@ -866,6 +877,15 @@ private final class NassauScanViewModel: ObservableObject {
         } else {
             slopeText = data.slope.map { String($0) } ?? ""
             ratingText = data.courseRating.map { String(format: "%.1f", $0) } ?? ""
+        }
+    }
+
+    private static func sortedTeeOptions(_ teeKeys: [String]) -> [String] {
+        teeKeys.sorted { lhs, rhs in
+            let lIndex = teePreferenceOrder.firstIndex(of: lhs) ?? .max
+            let rIndex = teePreferenceOrder.firstIndex(of: rhs) ?? .max
+            if lIndex != rIndex { return lIndex < rIndex }
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
         }
     }
 
@@ -944,6 +964,10 @@ private struct NassauHoleReviewRow: View {
             Text("\(hole.number)")
                 .frame(width: CourseReviewLayout.holeColumnWidth, alignment: .center)
                 .foregroundStyle(.secondary)
+
+            Text(hole.yardage.map { "\($0)" } ?? "—")
+                .frame(width: CourseReviewLayout.yardageColumnWidth, alignment: .center)
+                .foregroundStyle(hole.yardage == nil ? .secondary : .primary)
 
             Stepper(
                 value: Binding(

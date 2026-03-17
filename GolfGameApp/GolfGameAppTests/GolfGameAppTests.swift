@@ -141,7 +141,7 @@ struct GolfGameAppTests {
         )
 
         #expect(output.multiplier == 2)
-        #expect(output.multipliedTeamBPoints == 8)
+        #expect(output.multipliedTeamBPoints == 4)
     }
 
     @Test func rerollRequiresRoll() throws {

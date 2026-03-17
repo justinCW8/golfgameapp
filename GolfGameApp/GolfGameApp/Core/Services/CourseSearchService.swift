@@ -114,9 +114,10 @@ struct CourseSearchService {
 
         for teeSet in teeSets where teeSet.holes.count == 18 {
             let key = teeSet.teeName
+            let strokeIndexes = Self.resolvedStrokeIndexes(from: teeSet.holes.map(\.handicap))
             teeRatings[key] = TeeRating(rating: teeSet.courseRating, slope: teeSet.slopeRating)
             holesByTee[key] = teeSet.holes.enumerated().map { idx, hole in
-                ScannedHole(number: idx + 1, par: hole.par, strokeIndex: hole.handicap, yardage: hole.yardage)
+                ScannedHole(number: idx + 1, par: hole.par, strokeIndex: strokeIndexes[idx], yardage: hole.yardage)
             }
         }
 
@@ -183,6 +184,22 @@ struct CourseSearchService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
     }
+
+    static func resolvedStrokeIndexes(from handicaps: [Int?]) -> [Int] {
+        guard !handicaps.isEmpty else { return [] }
+
+        let allowed = Set(1...handicaps.count)
+        var seen = Set<Int>()
+        let preserved = handicaps.map { handicap -> Int? in
+            guard let handicap, allowed.contains(handicap), seen.insert(handicap).inserted else {
+                return nil
+            }
+            return handicap
+        }
+
+        var remaining = (1...handicaps.count).filter { !seen.contains($0) }.makeIterator()
+        return preserved.map { $0 ?? remaining.next() ?? 1 }
+    }
 }
 
 // MARK: - Private Decodable types
@@ -232,5 +249,5 @@ private struct GolfAPITeeSet: Decodable {
 private struct GolfAPIHole: Decodable {
     let par: Int
     let yardage: Int
-    let handicap: Int   // stroke index in the API
+    let handicap: Int?   // stroke index in the API; some responses omit it
 }

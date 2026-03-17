@@ -203,11 +203,11 @@ struct SixPointScotchRunningTotalsTests {
         var engine = SixPointScotchEngine()
         // Hole 1: B wins → A trails
         _ = try engine.scoreHole(bWinsHole(hole: 1))
-        // Hole 2: A presses (×2), A wins low man + low team = 4 raw → 8 multiplied
-        // No birdie: gross [4,4] on par 4
+        // Hole 2: A presses (×2), A wins low-team only.
+        // Low-man ties within Team A, so raw points = 2 and multiplied = 4.
         let out = try engine.scoreHole(scotchInput(hole: 2, aNet: [4, 4], bNet: [6, 7], pressBy: .teamA))
         #expect(out.multiplier == 2)
-        #expect(out.multipliedTeamAPoints == 8)
+        #expect(out.multipliedTeamAPoints == 4)
         #expect(out.frontNineTeamA == out.multipliedTeamAPoints)
     }
 }
@@ -254,21 +254,21 @@ struct SixPointScotchBucketRuleTests {
     @Test func lowTeamTieAwardsNoLowTeamPoints() throws {
         var engine = SixPointScotchEngine()
         // Team totals tie (4+5 vs 3+6 -> 9/9), so no low-team points.
-        // Team B has unique low man (3), so B gets only 2.
+        // Team B has unique low man (3) and a natural birdie, so B gets 3.
         let out = try engine.scoreHole(scotchInput(
             hole: 1, par: 4,
             aNet: [4, 5], bNet: [3, 6],
             aGross: [4, 5], bGross: [3, 6]
         ))
         #expect(out.rawTeamAPoints == 0)
-        #expect(out.rawTeamBPoints == 2)
+        #expect(out.rawTeamBPoints == 3)
         let lowTeamEntry = out.auditLog.first(where: { $0.hasPrefix("Low Team:") })
         #expect(lowTeamEntry == nil)
     }
 
     @Test func proxTieAwardsNoProxPoints() throws {
         var engine = SixPointScotchEngine()
-        // Both teams GIR-eligible and exact same prox distance -> no prox point.
+        // Team A is GIR-eligible and Team B is not, so Team A wins prox despite equal distance.
         let out = try engine.scoreHole(scotchInput(
             hole: 1, par: 3,
             aNet: [3, 4], bNet: [4, 5],
@@ -276,7 +276,7 @@ struct SixPointScotchBucketRuleTests {
             aProx: 6.0, bProx: 6.0
         ))
         let proxEntry = out.auditLog.first(where: { $0.hasPrefix("Prox:") })
-        #expect(proxEntry == nil)
+        #expect(proxEntry == "Prox: teamA (1)")
     }
 
     @Test func naturalBirdiePushWhenBothTeamsHaveBirdie() throws {

@@ -4,6 +4,7 @@ import Foundation
 
 // MARK: - ScotchHoleFlags
 
+@MainActor
 struct ScotchHoleFlagsTests {
 
     @Test func defaultInitHasEmptyProxAndNilFlags() {
@@ -53,6 +54,7 @@ struct ScotchHoleFlagsTests {
 
 // MARK: - SaturdayHoleEntry
 
+@MainActor
 struct SaturdayHoleEntryTests {
 
     @Test func defaultFlagsOnMinimalInit() {
@@ -92,6 +94,7 @@ struct SaturdayHoleEntryTests {
 
 // MARK: - SaturdayGameConfig
 
+@MainActor
 struct SaturdayGameConfigTests {
 
     @Test func nassauFactoryCreatesCorrectType() {
@@ -150,6 +153,7 @@ struct SaturdayGameConfigTests {
 
 // MARK: - SaturdayRound
 
+@MainActor
 struct SaturdayRoundTests {
 
     private func makeRound(
@@ -243,6 +247,7 @@ struct SaturdayRoundTests {
 
 // MARK: - Game Config Defaults
 
+@MainActor
 struct GameConfigDefaultTests {
 
     @Test func nassauDefaultHasFivePerSegmentStakes() {

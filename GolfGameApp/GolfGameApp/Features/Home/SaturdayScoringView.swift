@@ -790,7 +790,24 @@ private struct SaturdayScoringContent: View {
 
                     if let last = vm.scotchState.lastOutput {
                         let buckets = lastHoleBuckets(last)
+                        let umbrellaWinner = scotchUmbrellaWinner(last)
                         Divider()
+                        if let umbrellaWinner {
+                            HStack(spacing: 8) {
+                                Text("Umbrella")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.orange)
+                                Text("12")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text(teamInitials(umbrellaWinner))
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(umbrellaWinner == .teamA ? Color.blue : Color.orange)
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            Divider().padding(.leading, 16)
+                        }
                         // Bucket rows
                         if buckets.isEmpty {
                             HStack {
@@ -868,11 +885,24 @@ private struct SaturdayScoringContent: View {
         let aMult = last.multipliedTeamAPoints
         let bMult = last.multipliedTeamBPoints
         guard aMult != 0 || bMult != 0 else { return "Push" }
+        if let umbrellaWinner = scotchUmbrellaWinner(last) {
+            return "\(teamInitials(umbrellaWinner)) Umbrella +\(max(aMult, bMult))"
+        }
         if aMult > bMult {
             return "\(teamInitials(.teamA)) +\(aMult)"
         } else {
             return "\(teamInitials(.teamB)) +\(bMult)"
         }
+    }
+
+    private func scotchUmbrellaWinner(_ last: SixPointScotchHoleOutput) -> TeamSide? {
+        if last.auditLog.contains(where: { $0.localizedCaseInsensitiveContains("Umbrella: teamA") }) {
+            return .teamA
+        }
+        if last.auditLog.contains(where: { $0.localizedCaseInsensitiveContains("Umbrella: teamB") }) {
+            return .teamB
+        }
+        return nil
     }
 
     private func scotchBucketWinnerText(bucketLabel: String, side: TeamSide, last: SixPointScotchHoleOutput) -> String {
