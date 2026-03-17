@@ -220,7 +220,10 @@ struct HistoryRoundDetailView: View {
     private var messageData: RoundTextMessageData {
         RoundTextMessageData(
             recipients: buddyStore.phoneNumbers(forPlayers: round.players.map(\.name)),
-            body: RoundTextMessageComposer.messageBody(for: round)
+            body: RoundTextMessageComposer.messageBody(for: round),
+            attachmentData: RoundMessageSnapshotRenderer.pngData(for: round),
+            attachmentUTI: "public.png",
+            attachmentFilename: "golf-round-summary.png"
         )
     }
 
@@ -317,7 +320,10 @@ struct HistoryRoundDetailView: View {
         .sheet(isPresented: $showingMessageComposer) {
             RoundMessageComposeView(
                 recipients: messageData.recipients,
-                body: messageData.body
+                body: messageData.body,
+                attachmentData: messageData.attachmentData,
+                attachmentUTI: messageData.attachmentUTI,
+                attachmentFilename: messageData.attachmentFilename
             )
         }
         .alert("Send Scorecard + Settlement?", isPresented: $showSendConfirmAlert) {

@@ -95,6 +95,11 @@ struct WorkflowRegressionTests {
         #expect(message.contains("Final Settlement"))
         #expect(message.contains("Alice"))
         #expect(message.contains("Stableford:"))
+        #expect(message.contains("Standings:"))
+        #expect(message.contains("Alice "))
+        #expect(message.contains("Bob "))
+        #expect(message.contains("Carol "))
+        #expect(message.contains("Dave "))
     }
 
     private func makeRound(
