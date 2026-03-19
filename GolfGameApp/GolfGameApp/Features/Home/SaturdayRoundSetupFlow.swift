@@ -1168,7 +1168,7 @@ private struct SetupGameRulesSheet: View {
         case .sixPointScotch:
             return [
                 "Per-hole buckets: Low Man 2, Low Team 2, Birdie 1, Prox 1.",
-                "Low Man and Low Team require a single winner. Ties pay 0.",
+                "Low Man pays the team if the lowest score ties within the same side; across-team ties pay 0. Low Team ties pay 0.",
                 "Birdie bucket follows natural birdies. A stroke-assisted birdie does not take away an umbrella earned by a natural birdie.",
                 "Prox awards one winner only and requires natural GIR eligibility.",
                 "Umbrella pays 12 raw points when one team sweeps all buckets.",
