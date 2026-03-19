@@ -809,29 +809,20 @@ private struct SaturdayScoringContent: View {
                             Divider().padding(.leading, 16)
                         }
                         // Bucket rows
-                        if buckets.isEmpty {
+                        ForEach(Array(buckets.enumerated()), id: \.offset) { idx, bucket in
                             HStack {
-                                Text("No buckets won this hole")
-                                    .font(.caption2).foregroundStyle(.secondary)
+                                Text(bucket.label)
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text("\(bucket.points)")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(.primary)
                                 Spacer()
+                                Text(scotchBucketOutcomeText(bucket, last: last))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(scotchBucketOutcomeColor(bucket))
                             }
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                        } else {
-                            ForEach(Array(buckets.enumerated()), id: \.offset) { idx, bucket in
-                                HStack {
-                                    Text(bucket.0)
-                                        .font(.caption).foregroundStyle(.secondary)
-                                    Text("\(bucket.1)")
-                                        .font(.caption.weight(.semibold)).foregroundStyle(.primary)
-                                    Spacer()
-                                    Text(scotchBucketWinnerText(bucketLabel: bucket.0, side: bucket.2, last: last))
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(bucket.2 == .teamA ? Color.blue : Color.orange)
-                                }
-                                .padding(.horizontal, 16).padding(.vertical, 7)
-                                if idx < buckets.count - 1 {
-                                    Divider().padding(.leading, 16)
-                                }
+                            .padding(.horizontal, 16).padding(.vertical, 7)
+                            if idx < buckets.count - 1 {
+                                Divider().padding(.leading, 16)
                             }
                         }
                         Divider()
@@ -862,23 +853,45 @@ private struct SaturdayScoringContent: View {
         }
     }
 
-    // Returns (bucketName, points, winningSide) for the last scored hole
-    private func lastHoleBuckets(_ last: SixPointScotchHoleOutput) -> [(String, Int, TeamSide)] {
+    private enum ScotchBucketStatus {
+        case won(TeamSide)
+        case push
+        case notApplicable
+    }
+
+    private struct ScotchBucketRow: Identifiable {
+        let label: String
+        let points: Int
+        let status: ScotchBucketStatus
+
+        var id: String { label }
+    }
+
+    // Returns a fixed four-row bucket summary for the last scored hole.
+    private func lastHoleBuckets(_ last: SixPointScotchHoleOutput) -> [ScotchBucketRow] {
         let log = last.auditLog
         guard let startIdx = log.lastIndex(where: { $0 == "Hole \(last.holeNumber)" }) else { return [] }
-        var result: [(String, Int, TeamSide)] = []
+        var awarded: [String: TeamSide] = [:]
         for entry in log[(startIdx + 1)...] {
             for (marker, side) in [(": teamA (", TeamSide.teamA), (": teamB (", TeamSide.teamB)] {
                 if entry.contains(marker) {
                     let parts = entry.components(separatedBy: marker)
                     let name = parts.first ?? ""
-                    let pts = Int(parts.last?.dropLast() ?? "") ?? 0
-                    result.append((name, pts, side))
+                    awarded[name] = side
                     break
                 }
             }
         }
-        return result
+
+        let birdieInPlay = birdieBucketInPlay(for: last)
+        let proxStatus = proxBucketStatus(for: last)
+
+        return [
+            ScotchBucketRow(label: "Low Man", points: 2, status: awarded["Low Man"].map(ScotchBucketStatus.won) ?? .push),
+            ScotchBucketRow(label: "Low Team", points: 2, status: awarded["Low Team"].map(ScotchBucketStatus.won) ?? .push),
+            ScotchBucketRow(label: "Birdie", points: 1, status: awarded["Birdie"].map(ScotchBucketStatus.won) ?? (birdieInPlay ? .push : .notApplicable)),
+            ScotchBucketRow(label: "Prox", points: 1, status: proxStatus(awarded["Prox"]))
+        ]
     }
 
     private func scotchAuditSummary(_ last: SixPointScotchHoleOutput) -> String {
@@ -915,6 +928,48 @@ private struct SaturdayScoringContent: View {
             return name
         }
         return teamInitials(side)
+    }
+
+    private func scotchBucketOutcomeText(_ bucket: ScotchBucketRow, last: SixPointScotchHoleOutput) -> String {
+        switch bucket.status {
+        case .won(let side):
+            return scotchBucketWinnerText(bucketLabel: bucket.label, side: side, last: last)
+        case .push:
+            return "Push"
+        case .notApplicable:
+            return "N/A"
+        }
+    }
+
+    private func scotchBucketOutcomeColor(_ bucket: ScotchBucketRow) -> Color {
+        switch bucket.status {
+        case .won(let side):
+            return side == .teamA ? .blue : .orange
+        case .push, .notApplicable:
+            return .secondary
+        }
+    }
+
+    private func birdieBucketInPlay(for last: SixPointScotchHoleOutput) -> Bool {
+        guard let entry = vm.round.holeEntries.first(where: { $0.holeNumber == last.holeNumber }),
+              let stub = vm.round.holes.first(where: { $0.number == last.holeNumber }) else {
+            return false
+        }
+        let target = stub.par - 1
+        return vm.round.players.contains { player in
+            entry.grossByPlayerID[player.id] == target
+        }
+    }
+
+    private func proxBucketStatus(for last: SixPointScotchHoleOutput) -> ((TeamSide?) -> ScotchBucketStatus) {
+        guard let entry = vm.round.holeEntries.first(where: { $0.holeNumber == last.holeNumber }) else {
+            return { _ in .notApplicable }
+        }
+        let hasProxAttempt = !entry.scotchFlags.proxFeetByPlayerID.isEmpty
+        return { awardedSide in
+            if let awardedSide { return .won(awardedSide) }
+            return hasProxAttempt ? .push : .notApplicable
+        }
     }
 
     private func lowManWinnerName(for last: SixPointScotchHoleOutput) -> String? {
@@ -1244,7 +1299,7 @@ private struct GameRulesSheet: View {
         case .sixPointScotch:
             return [
                 "Per-hole buckets: Low Man 2, Low Team 2, Birdie 1, Prox 1.",
-                "Low Man and Low Team require a single winner. Ties pay 0.",
+                "Low Man pays the team if the lowest score ties within the same side; across-team ties pay 0. Low Team ties pay 0.",
                 "Birdie bucket follows natural birdies. A stroke-assisted birdie does not take away an umbrella earned by a natural birdie.",
                 "Prox awards one winner only and requires natural GIR eligibility.",
                 "Umbrella pays 12 raw points when one team sweeps all buckets.",

@@ -231,19 +231,19 @@ struct SixPointScotchLowManTieTests {
         #expect(lowManEntry == nil)
     }
 
-    @Test func lowManTieWithinSameTeamAwardsNoLowManPoints() throws {
+    @Test func lowManTieWithinSameTeamAwardsLowManPoints() throws {
         var engine = SixPointScotchEngine()
-        // Team A players tie for lowest net at 4 -> no low-man points.
-        // Team A still wins low-team 2 points (4+4 vs 5+6).
+        // Team A players tie for lowest net at 4.
+        // Same-team tie should still award low-man to Team A.
         let out = try engine.scoreHole(scotchInput(
             hole: 1, par: 4,
             aNet: [4, 4], bNet: [5, 6],
             aGross: [4, 4], bGross: [5, 6]
         ))
-        #expect(out.rawTeamAPoints == 2)
+        #expect(out.rawTeamAPoints == 4)
         #expect(out.rawTeamBPoints == 0)
         let lowManEntry = out.auditLog.first(where: { $0.hasPrefix("Low Man:") })
-        #expect(lowManEntry == nil)
+        #expect(lowManEntry == "Low Man: teamA (2)")
     }
 }
 

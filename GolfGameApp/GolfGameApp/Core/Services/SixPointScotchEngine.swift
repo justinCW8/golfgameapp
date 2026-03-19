@@ -178,8 +178,8 @@ struct SixPointScotchEngine {
             teamBNet.map { (.teamB, $0) }
         guard let bestNet = candidates.map(\.1).min() else { return nil }
         let winners = candidates.filter { $0.1 == bestNet }
-        guard winners.count == 1 else { return nil }
-        return winners[0].0
+        guard let firstSide = winners.first?.0 else { return nil }
+        return winners.allSatisfy { $0.0 == firstSide } ? firstSide : nil
     }
 
     private func lowTeamWinner(teamANet: [Int], teamBNet: [Int]) -> TeamSide? {
