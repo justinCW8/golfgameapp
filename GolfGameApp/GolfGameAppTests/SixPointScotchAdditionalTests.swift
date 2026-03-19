@@ -293,6 +293,24 @@ struct SixPointScotchBucketRuleTests {
         let birdieEntry = out.auditLog.first(where: { $0.hasPrefix("Birdie:") })
         #expect(birdieEntry == nil)
     }
+
+    @Test func naturalBirdieStillUmbrellasWhenPartnerHasStrokeBirdie() throws {
+        var engine = SixPointScotchEngine()
+        // Team A has one natural birdie and partner gets to net birdie with a stroke.
+        // Natural birdie should still win the birdie bucket, so Team A still umbrellas.
+        let out = try engine.scoreHole(scotchInput(
+            hole: 1, par: 4,
+            aNet: [3, 3], bNet: [5, 6],
+            aGross: [3, 4], bGross: [5, 6],
+            aProx: 4.0, bProx: nil
+        ))
+        #expect(out.rawTeamAPoints == 12)
+        #expect(out.rawTeamBPoints == 0)
+        let birdieEntry = out.auditLog.first(where: { $0.hasPrefix("Birdie:") })
+        let umbrellaEntry = out.auditLog.first(where: { $0.hasPrefix("Umbrella:") })
+        #expect(birdieEntry == "Birdie: teamA (1)")
+        #expect(umbrellaEntry != nil)
+    }
 }
 
 // MARK: - Back Nine Press Independence
